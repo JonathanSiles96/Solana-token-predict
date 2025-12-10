@@ -4,7 +4,7 @@ FastAPI application for Token Filtering & Gain Drivers API
 
 from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime
 import sys
 from pathlib import Path
