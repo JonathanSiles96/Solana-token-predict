@@ -352,17 +352,19 @@ class TokenScorer:
                             min_position_pct: float = 0.05,
                             max_position_pct: float = 0.10) -> Dict:
         """
-        Recommend trading parameters based on token score and strategy rules
+        Recommend trading parameters based on token score and ULTRA-STRICT strategy rules
         
-        Uses your strategy configuration from src/strategy/config.py:
-        - Entry: Confidence ≥ 0.8, Risk-adj score ≥ 1.0, Volume > 10k, Holders > 50
-        - Red flags: Bundled > 60%, Sold > 60%, Snipers > 50%
+        ULTRA-STRICT for 80%+ Win Rate:
+        - Entry: Confidence ≥ 0.8, Risk-adj score ≥ 100, Volume > 20k, Holders > 150
+        - Red flags: Bundled > 15%, Sold > 15%, Snipers > 25%
+        - Security: Only ✅ tokens allowed
+        - Source: Only primal, whale, solana_tracker
         - Position sizing: 5-10% based on confidence
-        - Stop loss: -35% default, -45% for risky tokens
+        - Stop loss: -35% default, -45% for any warnings
         
         Args:
             token_data: Token features
-            base_sl: Base stop-loss level (default from strategy)
+            base_sl: Base stop-loss level
             min_position_pct: Minimum position size
             max_position_pct: Maximum position size
             
@@ -402,26 +404,41 @@ class TokenScorer:
         volume_1h = token_data.get('signal_volume_1h') or 0
         holders = token_data.get('signal_holders') or 0
         liq_ratio = (liquidity / mc) if mc > 0 else 0
+        security = str(token_data.get('signal_security', '') or '')
+        first_20_pct = token_data.get('signal_first_20_pct') or 0
+        source = str(token_data.get('signal_source', 'unknown') or 'unknown').lower()
+        token_age = token_data.get('age_minutes') or 0
         
-        # Use strategy thresholds if available, else defaults
+        # Use strategy thresholds - ULTRA STRICT
         if strategy:
-            # Entry thresholds from your strategy
+            # Entry thresholds - STRICTER
             min_confidence = strategy.entry.min_confidence  # 0.80
-            min_risk_adj = strategy.entry.min_risk_adjusted_score  # 1.0
-            min_volume = strategy.entry.min_volume_1h  # 10000
-            min_holders = strategy.entry.min_holders  # 50
-            min_liquidity = strategy.entry.min_liquidity  # 5000
-            min_liq_ratio = strategy.entry.min_liq_to_mc_ratio  # 0.15
+            min_risk_adj = strategy.entry.min_risk_adjusted_score  # 100.0 (was 1.0)
+            min_volume = strategy.entry.min_volume_1h  # 20000 (was 10000)
+            min_holders = strategy.entry.min_holders  # 150 (was 50)
+            min_liquidity = strategy.entry.min_liquidity  # 15000 (was 5000)
+            min_liq_ratio = strategy.entry.min_liq_to_mc_ratio  # 0.20
+            min_mc = strategy.entry.min_mc  # 30000
             
-            # Red flags from your strategy
-            max_bundled = strategy.entry.max_bundled_pct  # 60
-            max_sold = strategy.entry.max_sold_pct  # 60
-            max_snipers = strategy.entry.max_snipers_pct  # 50
+            # Red flags - MUCH STRICTER
+            max_bundled = strategy.entry.max_bundled_pct  # 15 (was 60)
+            max_sold = strategy.entry.max_sold_pct  # 15 (was 60)
+            max_snipers = strategy.entry.max_snipers_pct  # 25 (was 50)
+            max_first_20 = strategy.entry.max_first_20_pct  # 50
             
-            # Warning thresholds
-            warn_bundled = strategy.entry.warn_bundled_pct  # 15
-            warn_sold = strategy.entry.warn_sold_pct  # 25
-            warn_snipers = strategy.entry.warn_snipers_pct  # 35
+            # Warning thresholds - STRICTER
+            warn_bundled = strategy.entry.warn_bundled_pct  # 5 (was 15)
+            warn_sold = strategy.entry.warn_sold_pct  # 8 (was 25)
+            warn_snipers = strategy.entry.warn_snipers_pct  # 15 (was 35)
+            
+            # Security & source
+            require_green = strategy.entry.require_green_security
+            allowed_security = strategy.entry.allowed_security_statuses
+            min_source_priority = strategy.entry.min_source_priority  # 70
+            
+            # Token age
+            min_age = strategy.entry.min_token_age  # 1
+            max_age = strategy.entry.max_token_age  # 60
             
             # Position sizing
             min_pos = strategy.risk.min_position_pct
@@ -432,26 +449,37 @@ class TokenScorer:
             default_sl = strategy.risk.default_sl
             tight_sl = strategy.risk.tight_sl
             loose_sl = strategy.risk.loose_sl
+            
+            # Get source priority
+            source_priority = strategy.get_source_priority(source)
         else:
-            # Fallback defaults
+            # Fallback defaults - ULTRA STRICT
             min_confidence = 0.80
-            min_risk_adj = 1.0
-            min_volume = 10000
-            min_holders = 50
-            min_liquidity = 5000
-            min_liq_ratio = 0.15
-            max_bundled = 60
-            max_sold = 60
-            max_snipers = 50
-            warn_bundled = 15
-            warn_sold = 25
-            warn_snipers = 35
+            min_risk_adj = 100.0
+            min_volume = 20000
+            min_holders = 150
+            min_liquidity = 15000
+            min_liq_ratio = 0.20
+            min_mc = 30000
+            max_bundled = 15
+            max_sold = 15
+            max_snipers = 25
+            max_first_20 = 50
+            warn_bundled = 5
+            warn_sold = 8
+            warn_snipers = 15
+            require_green = True
+            allowed_security = ["✅", "white_check_mark"]
+            min_source_priority = 70
+            min_age = 1
+            max_age = 60
             min_pos = 0.05
             max_pos = 0.10
             high_risk_pos = 0.05
             default_sl = -0.35
             tight_sl = -0.45
             loose_sl = -0.25
+            source_priority = 50  # Default for unknown sources
         
         # === DETERMINE IF HIGH RISK ===
         is_high_risk = (
@@ -460,94 +488,104 @@ class TokenScorer:
             snipers_pct > warn_snipers
         )
         
-        # === STOP LOSS ===
+        # === STOP LOSS - Stricter ===
         if is_high_risk:
             sl_level = tight_sl
-        elif risk < 0.3 and holders > 200:
+        elif risk < 0.2 and holders > 250 and bundled_pct < 3 and snipers_pct < 10:
             sl_level = loose_sl
         else:
             sl_level = default_sl
         
-        # === TAKE PROFIT LEVELS ===
-        if predicted_gain > 2.0:
-            tp_levels = [
-                {'gain_pct': 50, 'sell_amount_pct': 15},
-                {'gain_pct': 100, 'sell_amount_pct': 25},
-                {'gain_pct': 200, 'sell_amount_pct': 35},
-                {'gain_pct': 500, 'sell_amount_pct': 100}
-            ]
-        elif predicted_gain > 1.0:
-            tp_levels = [
-                {'gain_pct': 30, 'sell_amount_pct': 20},
-                {'gain_pct': 70, 'sell_amount_pct': 25},
-                {'gain_pct': 150, 'sell_amount_pct': 35},
-                {'gain_pct': 300, 'sell_amount_pct': 100}
-            ]
-        elif predicted_gain > 0.5:
-            tp_levels = [
-                {'gain_pct': 20, 'sell_amount_pct': 25},
-                {'gain_pct': 50, 'sell_amount_pct': 30},
-                {'gain_pct': 100, 'sell_amount_pct': 35},
-                {'gain_pct': 200, 'sell_amount_pct': 100}
-            ]
-        else:
-            tp_levels = [
-                {'gain_pct': 10, 'sell_amount_pct': 30},
-                {'gain_pct': 30, 'sell_amount_pct': 35},
-                {'gain_pct': 50, 'sell_amount_pct': 35},
-                {'gain_pct': 100, 'sell_amount_pct': 100}
-            ]
+        # === TAKE PROFIT LEVELS - More conservative ===
+        tp_levels = [
+            {'gain_pct': 30, 'sell_amount_pct': 25},
+            {'gain_pct': 50, 'sell_amount_pct': 25},
+            {'gain_pct': 100, 'sell_amount_pct': 30},
+            {'gain_pct': 200, 'sell_amount_pct': 100}
+        ]
         
-        # === POSITION SIZING ===
+        # === POSITION SIZING - Conservative ===
         if is_high_risk:
             position_size = high_risk_pos
         else:
-            risk_factor = 1.0 - (risk * 0.5)
-            position_size = min_pos + (confidence * risk_factor * (max_pos - min_pos))
+            risk_factor = 1.0 - (risk * 0.6)
+            position_size = min_pos + (confidence * risk_factor * (max_pos - min_pos) * 0.7)
             position_size = max(min_pos, min(max_pos, position_size))
         
-        # === GO/SKIP DECISION (Your Strategy Rules) ===
+        # === GO/SKIP DECISION - ULTRA STRICT FOR 80%+ WIN RATE ===
+        go_decision = False
+        decision_reason = ""
         
-        # Check for RED FLAGS (auto-SKIP)
-        has_red_flags = (
-            bundled_pct > max_bundled or
-            sold_pct > max_sold or
-            snipers_pct > max_snipers
-        )
-        
-        # Check minimum requirements
-        has_minimum_data = mc > 0 and liquidity > 0 and holders > 0
-        
-        passes_entry_criteria = (
-            confidence >= min_confidence and
-            risk_adjusted_score >= min_risk_adj and
-            volume_1h >= min_volume and
-            holders >= min_holders and
-            liquidity >= min_liquidity
-        )
-        
-        # Decision logic
-        if has_red_flags:
+        # 1. Security check (CRITICAL)
+        is_green = any(s in security for s in allowed_security)
+        if require_green and not is_green:
+            decision_reason = f"🚨 Security not ✅: '{security}'"
             go_decision = False
-            decision_reason = f"🚨 Red flag: bundled={bundled_pct:.0f}%, sold={sold_pct:.0f}%, snipers={snipers_pct:.0f}%"
-        elif not has_minimum_data:
+        
+        # 2. Source priority check
+        elif source_priority < min_source_priority:
+            decision_reason = f"🚨 Low source priority: {source} ({source_priority})"
             go_decision = False
-            decision_reason = "❌ Missing required data (MC, liquidity, or holders)"
-        elif not passes_entry_criteria:
+        
+        # 3. Red flags check - STRICTER
+        elif bundled_pct > max_bundled:
+            decision_reason = f"🚨 Bundled too high: {bundled_pct:.0f}% > {max_bundled}%"
             go_decision = False
-            reasons = []
-            if confidence < min_confidence:
-                reasons.append(f"confidence {confidence:.2f} < {min_confidence}")
-            if risk_adjusted_score < min_risk_adj:
-                reasons.append(f"risk-adj {risk_adjusted_score:.2f} < {min_risk_adj}")
-            if volume_1h < min_volume:
-                reasons.append(f"volume ${volume_1h:,.0f} < ${min_volume:,.0f}")
-            if holders < min_holders:
-                reasons.append(f"holders {holders} < {min_holders}")
-            decision_reason = "❌ " + ", ".join(reasons)
+        
+        elif sold_pct > max_sold:
+            decision_reason = f"🚨 Sold too high: {sold_pct:.0f}% > {max_sold}%"
+            go_decision = False
+        
+        elif snipers_pct > max_snipers:
+            decision_reason = f"🚨 Snipers too high: {snipers_pct:.0f}% > {max_snipers}%"
+            go_decision = False
+        
+        elif first_20_pct > max_first_20:
+            decision_reason = f"🚨 Top 20 concentration: {first_20_pct:.0f}% > {max_first_20}%"
+            go_decision = False
+        
+        # 4. Token age check
+        elif token_age > 0 and token_age > max_age:
+            decision_reason = f"🚨 Token too old: {token_age:.0f}m > {max_age}m"
+            go_decision = False
+        
+        # 5. Minimum data requirements
+        elif mc <= 0 or liquidity <= 0 or holders <= 0:
+            decision_reason = "❌ Missing required data"
+            go_decision = False
+        
+        elif mc < min_mc:
+            decision_reason = f"❌ MC too low: ${mc:,.0f} < ${min_mc:,.0f}"
+            go_decision = False
+        
+        elif liquidity < min_liquidity:
+            decision_reason = f"❌ Liquidity too low: ${liquidity:,.0f}"
+            go_decision = False
+        
+        elif liq_ratio < min_liq_ratio:
+            decision_reason = f"❌ Liq ratio too low: {liq_ratio:.1%}"
+            go_decision = False
+        
+        elif volume_1h < min_volume:
+            decision_reason = f"❌ Volume too low: ${volume_1h:,.0f}"
+            go_decision = False
+        
+        elif holders < min_holders:
+            decision_reason = f"❌ Holders too few: {holders}"
+            go_decision = False
+        
+        elif confidence < min_confidence:
+            decision_reason = f"❌ Confidence too low: {confidence:.2f}"
+            go_decision = False
+        
+        elif risk_adjusted_score < min_risk_adj:
+            decision_reason = f"❌ risk-adj {risk_adjusted_score:.2f} < {min_risk_adj}"
+            go_decision = False
+        
         else:
+            # ALL CHECKS PASSED - GO!
             go_decision = True
-            decision_reason = f"✅ Passed all filters: conf={confidence:.2f}, risk-adj={risk_adjusted_score:.2f}"
+            decision_reason = f"✅ ALL STRICT filters passed: conf={confidence:.2f}, risk-adj={risk_adjusted_score:.2f}"
         
         # Add warnings to notes
         warnings = []
@@ -557,8 +595,6 @@ class TokenScorer:
             warnings.append(f"sold:{sold_pct:.0f}%")
         if snipers_pct > warn_snipers:
             warnings.append(f"snipers:{snipers_pct:.0f}%")
-        if liq_ratio < min_liq_ratio:
-            warnings.append(f"low_liq_ratio:{liq_ratio:.1%}")
         
         notes = decision_reason
         if warnings:

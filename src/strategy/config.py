@@ -11,7 +11,7 @@ All thresholds and rules are configurable here.
 """
 
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from enum import Enum
 
 
@@ -54,43 +54,58 @@ class RiskManagementConfig:
 
 @dataclass
 class EntryConfig:
-    """Entry strategy rules"""
+    """Entry strategy rules - ULTRA STRICT for 80%+ win rate"""
     
-    # Minimum thresholds for entry (your criteria)
+    # Minimum thresholds for entry - STRICT
     min_confidence: float = 0.80        # Confidence ≥ 0.8
-    min_risk_adjusted_score: float = 1.0  # Risk-adjusted score ≥ 1.0
-    min_volume_1h: float = 10000        # Volume > 10k
-    min_holders: int = 50               # Holders > 50
-    min_liquidity: float = 5000         # Minimum liquidity
-    min_mc: float = 10000               # Minimum market cap
+    min_risk_adjusted_score: float = 100.0  # Risk-adjusted score ≥ 100 (was 1.0)
+    min_volume_1h: float = 20000        # Volume > 20k (was 10k)
+    min_holders: int = 150              # Holders > 150 (was 50)
+    min_liquidity: float = 15000        # Minimum liquidity (was 5k)
+    min_mc: float = 30000               # Minimum market cap (was 10k)
     
-    # Red flags - AVOID these
-    max_bundled_pct: float = 60.0       # Avoid if bundled > 60%
-    max_sold_pct: float = 60.0          # Avoid if sold > 60%
-    max_snipers_pct: float = 50.0       # Avoid if snipers > 50%
+    # Red flags - VERY STRICT thresholds for 80%+ win rate
+    max_bundled_pct: float = 15.0       # Avoid if bundled > 15% (was 60%)
+    max_sold_pct: float = 15.0          # Avoid if sold > 15% (was 60%)
+    max_snipers_pct: float = 25.0       # Avoid if snipers > 25% (was 50%)
     
-    # Warning thresholds (reduce position size)
-    warn_bundled_pct: float = 15.0      # Warning if bundled > 15%
-    warn_sold_pct: float = 25.0         # Warning if sold > 25%
-    warn_snipers_pct: float = 35.0      # Warning if snipers > 35%
+    # Warning thresholds (reduce position size) - now stricter
+    warn_bundled_pct: float = 5.0       # Warning if bundled > 5% (was 15%)
+    warn_sold_pct: float = 8.0          # Warning if sold > 8% (was 25%)
+    warn_snipers_pct: float = 15.0      # Warning if snipers > 15% (was 35%)
     
     # Entry timing
-    max_initial_pump_pct: float = 50.0  # Avoid if already pumped > 50%
-    ideal_entry_pump_range: tuple = (5.0, 30.0)  # Enter after 5-30% pump
+    max_initial_pump_pct: float = 40.0  # Avoid if already pumped > 40% (was 50%)
+    ideal_entry_pump_range: tuple = (5.0, 25.0)  # Enter after 5-25% pump
     
     # Liquidity ratio
-    min_liq_to_mc_ratio: float = 0.15   # Minimum 15% liq/mc
+    min_liq_to_mc_ratio: float = 0.20   # Minimum 20% liq/mc (was 15%)
     
-    # Signal source priority (higher = better)
+    # Security status filter - CRITICAL for 80%+ win rate
+    require_green_security: bool = True  # Only trade ✅ tokens
+    allowed_security_statuses: List[str] = field(default_factory=lambda: ["✅", "white_check_mark"])
+    
+    # Token age filter (in minutes)
+    min_token_age: int = 1              # At least 1 minute old
+    max_token_age: int = 60             # Not older than 60 minutes
+    
+    # First 20 holders concentration limit
+    max_first_20_pct: float = 50.0      # Avoid if top 20 hold > 50%
+    
+    # Signal source priority (higher = better) - ONLY use trusted sources
     source_priority: Dict[str, int] = field(default_factory=lambda: {
         "primal": 100,
-        "whale": 80,
+        "whale": 90,
         "solana_tracker": 70,
-        "whale_trending": 60,
-        "early_trending": 50,
-        "telegram_early": 40,
-        "unknown": 20
+        "whale_trending": 50,
+        "early_trending": 40,
+        "tg_early_trending": 40,
+        "telegram_early": 30,
+        "unknown": 10
     })
+    
+    # Minimum source priority to trade
+    min_source_priority: int = 70       # Only primal, whale, solana_tracker
 
 
 @dataclass
@@ -201,9 +216,9 @@ class TradingStrategy:
             sold > self.risk.high_risk_sold_pct
         )
     
-    def passes_entry_filters(self, signal_data: dict, prediction: dict) -> tuple:
+    def passes_entry_filters(self, signal_data: dict, prediction: dict) -> Tuple[bool, list, float]:
         """
-        Check if signal passes all entry filters
+        Check if signal passes all entry filters - ULTRA STRICT for 80%+ win rate
         
         Returns:
             (passes: bool, reasons: list, score: float)
@@ -221,11 +236,28 @@ class TradingStrategy:
         bundled = signal_data.get("signal_bundled_pct", 0) or 0
         sold = signal_data.get("signal_sold_pct", 0) or 0
         snipers = signal_data.get("signal_snipers_pct", 0) or 0
+        security = signal_data.get("signal_security", "") or ""
+        first_20_pct = signal_data.get("signal_first_20_pct", 0) or 0
+        token_age = signal_data.get("age_minutes", 0) or 0
+        source = signal_data.get("signal_source", "unknown") or "unknown"
         
         # Calculate liq ratio
         liq_ratio = liquidity / mc if mc > 0 else 0
         
-        # === HARD REJECTIONS (red flags) ===
+        # === CRITICAL: SECURITY STATUS FILTER ===
+        if self.entry.require_green_security:
+            is_green = any(s in str(security) for s in self.entry.allowed_security_statuses)
+            if not is_green:
+                reasons.append(f"🚨 Security not ✅: '{security}' - Only green security tokens allowed")
+                return False, reasons, 0
+        
+        # === SOURCE PRIORITY FILTER ===
+        source_priority = self.get_source_priority(source)
+        if source_priority < self.entry.min_source_priority:
+            reasons.append(f"🚨 Source priority too low: {source} ({source_priority}) < {self.entry.min_source_priority}")
+            return False, reasons, 0
+        
+        # === HARD REJECTIONS (red flags) - STRICTER THRESHOLDS ===
         
         if bundled > self.entry.max_bundled_pct:
             reasons.append(f"🚨 Bundled too high: {bundled:.1f}% > {self.entry.max_bundled_pct}%")
@@ -239,25 +271,46 @@ class TradingStrategy:
             reasons.append(f"🚨 Snipers too high: {snipers:.1f}% > {self.entry.max_snipers_pct}%")
             return False, reasons, 0
         
+        # === NEW: First 20 holders concentration ===
+        if first_20_pct > self.entry.max_first_20_pct:
+            reasons.append(f"🚨 Top 20 hold too much: {first_20_pct:.1f}% > {self.entry.max_first_20_pct}%")
+            return False, reasons, 0
+        
+        # === NEW: Token age filter ===
+        if token_age > 0:  # Only apply if we have age data
+            if token_age < self.entry.min_token_age:
+                reasons.append(f"🚨 Token too new: {token_age:.0f}m < {self.entry.min_token_age}m")
+                return False, reasons, 0
+            if token_age > self.entry.max_token_age:
+                reasons.append(f"🚨 Token too old: {token_age:.0f}m > {self.entry.max_token_age}m")
+                return False, reasons, 0
+        
         # === MINIMUM REQUIREMENTS ===
         
         passes = True
         
+        # Market cap check
+        if mc >= self.entry.min_mc:
+            score += 10
+        else:
+            passes = False
+            reasons.append(f"❌ Low MC: ${mc:,.0f} < ${self.entry.min_mc:,.0f}")
+        
         # Confidence check
         if confidence >= self.entry.min_confidence:
-            score += 25
+            score += 20
             reasons.append(f"✅ Confidence: {confidence:.2f}")
         else:
             passes = False
             reasons.append(f"❌ Low confidence: {confidence:.2f} < {self.entry.min_confidence}")
         
-        # Risk-adjusted score check
+        # Risk-adjusted score check - CRITICAL
         if risk_adj_score >= self.entry.min_risk_adjusted_score:
-            score += 25
+            score += 30
             reasons.append(f"✅ Risk-adj score: {risk_adj_score:.2f}")
         else:
             passes = False
-            reasons.append(f"❌ Low risk-adj: {risk_adj_score:.2f} < {self.entry.min_risk_adjusted_score}")
+            reasons.append(f"❌ risk-adj {risk_adj_score:.2f} < {self.entry.min_risk_adjusted_score}")
         
         # Volume check
         if volume_1h >= self.entry.min_volume_1h:
@@ -280,31 +333,30 @@ class TradingStrategy:
             score += 10
         else:
             passes = False
-            reasons.append(f"❌ Low liquidity: ${liquidity:,.0f}")
+            reasons.append(f"❌ Low liquidity: ${liquidity:,.0f} < ${self.entry.min_liquidity:,.0f}")
         
         # Liq ratio check
         if liq_ratio >= self.entry.min_liq_to_mc_ratio:
             score += 10
         else:
-            reasons.append(f"⚠️ Low liq ratio: {liq_ratio:.1%}")
+            passes = False
+            reasons.append(f"❌ Low liq ratio: {liq_ratio:.1%} < {self.entry.min_liq_to_mc_ratio:.0%}")
         
-        # === WARNINGS (reduce score but don't reject) ===
+        # === WARNINGS (reduce score) ===
         
         if bundled > self.entry.warn_bundled_pct:
-            score -= 10
-            reasons.append(f"⚠️ High bundled: {bundled:.1f}%")
+            score -= 15
+            reasons.append(f"⚠️ Bundled: {bundled:.1f}%")
         
         if sold > self.entry.warn_sold_pct:
-            score -= 10
-            reasons.append(f"⚠️ High sold: {sold:.1f}%")
+            score -= 15
+            reasons.append(f"⚠️ Sold: {sold:.1f}%")
         
         if snipers > self.entry.warn_snipers_pct:
-            score -= 10
-            reasons.append(f"⚠️ High snipers: {snipers:.1f}%")
+            score -= 15
+            reasons.append(f"⚠️ Snipers: {snipers:.1f}%")
         
         # === SOURCE PRIORITY BONUS ===
-        source = signal_data.get("signal_source", "unknown")
-        source_priority = self.get_source_priority(source)
         score += source_priority / 10  # Add up to 10 points for source
         
         return passes, reasons, max(0, score)
