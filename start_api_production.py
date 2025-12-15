@@ -272,17 +272,34 @@ def load_and_train_model():
     try:
         metrics = scorer.train(training_data, target_col='max_return')
         
-        print(f"\n✅ MODEL TRAINED:")
-        print(f"  Test R²: {metrics['test']['r2']:.3f}")
+        test_r2 = metrics['test']['r2']
+        cv_r2 = metrics.get('cv_r2_mean', 0)
+        
+        print(f"\n{'='*60}")
+        print(f"MODEL TRAINING RESULTS")
+        print(f"{'='*60}")
+        print(f"  Test R²: {test_r2:.3f}")
+        print(f"  CV R²:   {cv_r2:.3f}")
         print(f"  Test RMSE: {metrics['test']['rmse']:.3f}")
         print(f"  Test MAE: {metrics['test']['mae']:.3f}")
         
-        if metrics['test']['r2'] > 0.5:
-            print(f"  🎯 Excellent quality!")
-        elif metrics['test']['r2'] > 0.3:
-            print(f"  ✅ Good quality")
+        # Quality assessment
+        if test_r2 < 0 or cv_r2 < 0:
+            print(f"\n🚨 CRITICAL: Model has NEGATIVE R² score!")
+            print(f"   The model cannot generalize and will make BAD predictions.")
+            print(f"   Predictions will be clamped to realistic values as a safety measure.")
+            print(f"\n   Recommendations:")
+            print(f"   - Collect more training data")
+            print(f"   - Check for data quality issues")
+            print(f"   - Consider simpler features")
+        elif test_r2 > 0.5:
+            print(f"\n🎯 EXCELLENT: Model quality is great!")
+        elif test_r2 > 0.3:
+            print(f"\n✅ GOOD: Model quality is acceptable")
+        elif test_r2 > 0.1:
+            print(f"\n⚠️  FAIR: Model has limited predictive power")
         else:
-            print(f"  ⚠️  Fair quality - more data recommended")
+            print(f"\n⚠️  POOR: Model predictions may not be reliable")
         
         # Save model
         model_path = "outputs/models/token_scorer.pkl"

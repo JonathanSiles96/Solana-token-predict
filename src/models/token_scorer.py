@@ -249,6 +249,53 @@ class TokenScorer:
             print(f"\nTop 10 Most Important Features:")
             print(importance_df.head(10).to_string(index=False))
         
+        # === MODEL QUALITY VALIDATION ===
+        test_r2 = metrics['test']['r2']
+        cv_r2 = metrics['cv_r2_mean']
+        
+        print(f"\n{'='*80}")
+        print("MODEL QUALITY ASSESSMENT")
+        print(f"{'='*80}")
+        
+        self.model_quality = "unknown"
+        
+        if test_r2 < 0:
+            print(f"\n🚨 CRITICAL: Test R² is NEGATIVE ({test_r2:.4f})")
+            print("   Model is WORSE than predicting the mean!")
+            print("   This model should NOT be used for trading.")
+            print("   Possible causes:")
+            print("   - Insufficient training data")
+            print("   - Features don't predict the target")
+            print("   - Severe overfitting")
+            self.model_quality = "unusable"
+            metrics['model_quality'] = "unusable"
+        elif test_r2 < 0.1:
+            print(f"\n⚠️  WARNING: Test R² is very low ({test_r2:.4f})")
+            print("   Model has weak predictive power.")
+            print("   Use with extreme caution.")
+            self.model_quality = "poor"
+            metrics['model_quality'] = "poor"
+        elif test_r2 < 0.3:
+            print(f"\n⚠️  CAUTION: Test R² is moderate ({test_r2:.4f})")
+            print("   Model has limited predictive power.")
+            self.model_quality = "fair"
+            metrics['model_quality'] = "fair"
+        elif test_r2 < 0.5:
+            print(f"\n✅ GOOD: Test R² is acceptable ({test_r2:.4f})")
+            self.model_quality = "good"
+            metrics['model_quality'] = "good"
+        else:
+            print(f"\n🎯 EXCELLENT: Test R² is strong ({test_r2:.4f})")
+            self.model_quality = "excellent"
+            metrics['model_quality'] = "excellent"
+        
+        if cv_r2 < 0:
+            print(f"\n🚨 Cross-validation R² is NEGATIVE ({cv_r2:.4f})")
+            print("   Model does not generalize to new data!")
+            if self.model_quality != "unusable":
+                self.model_quality = "unusable"
+                metrics['model_quality'] = "unusable"
+        
         print(f"\n{'='*80}\n")
         
         self.trained = True
@@ -281,7 +328,18 @@ class TokenScorer:
         X_scaled = self.scaler.transform(X)
         
         # Predict
-        prediction = self.model.predict(X_scaled)[0]
+        raw_prediction = self.model.predict(X_scaled)[0]
+        
+        # SANITY CHECK: Cap predictions at realistic values
+        # No token realistically gains more than 10x (1000%) or loses more than 100%
+        MAX_GAIN = 10.0   # 1000% max gain
+        MIN_GAIN = -0.99  # -99% max loss
+        prediction = max(MIN_GAIN, min(MAX_GAIN, raw_prediction))
+        
+        # Log warning if prediction was clamped (indicates model issues)
+        if raw_prediction != prediction:
+            import warnings
+            warnings.warn(f"Prediction clamped: {raw_prediction:.2f} -> {prediction:.2f} (model may need retraining)")
         
         # Calculate confidence based on feature completeness
         completeness = (1 - X.isna().sum().sum() / len(X.columns))
@@ -453,26 +511,26 @@ class TokenScorer:
             # Get source priority
             source_priority = strategy.get_source_priority(source)
         else:
-            # Fallback defaults - ULTRA STRICT
-            min_confidence = 0.80
-            min_risk_adj = 100.0
-            min_volume = 20000
-            min_holders = 150
+            # Fallback defaults - Realistic thresholds
+            min_confidence = 0.75
+            min_risk_adj = 0.8  # predicted_gain * confidence must be >= 0.8
+            min_volume = 15000
+            min_holders = 100
             min_liquidity = 15000
             min_liq_ratio = 0.20
             min_mc = 30000
-            max_bundled = 15
-            max_sold = 15
-            max_snipers = 25
+            max_bundled = 20
+            max_sold = 20
+            max_snipers = 30
             max_first_20 = 50
-            warn_bundled = 5
-            warn_sold = 8
-            warn_snipers = 15
-            require_green = True
-            allowed_security = ["✅", "white_check_mark"]
-            min_source_priority = 70
+            warn_bundled = 10
+            warn_sold = 10
+            warn_snipers = 20
+            require_green = False  # Allow warning tokens too
+            allowed_security = ["✅", "white_check_mark", "⚠️", "warning"]
+            min_source_priority = 40
             min_age = 1
-            max_age = 60
+            max_age = 120
             min_pos = 0.05
             max_pos = 0.10
             high_risk_pos = 0.05

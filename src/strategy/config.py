@@ -54,25 +54,25 @@ class RiskManagementConfig:
 
 @dataclass
 class EntryConfig:
-    """Entry strategy rules - ULTRA STRICT for 80%+ win rate"""
+    """Entry strategy rules - STRICT for high win rate"""
     
     # Minimum thresholds for entry - STRICT
-    min_confidence: float = 0.80        # Confidence ≥ 0.8
-    min_risk_adjusted_score: float = 100.0  # Risk-adjusted score ≥ 100 (was 1.0)
-    min_volume_1h: float = 20000        # Volume > 20k (was 10k)
-    min_holders: int = 150              # Holders > 150 (was 50)
-    min_liquidity: float = 15000        # Minimum liquidity (was 5k)
-    min_mc: float = 30000               # Minimum market cap (was 10k)
+    min_confidence: float = 0.75        # Confidence ≥ 0.75
+    min_risk_adjusted_score: float = 0.8  # Risk-adjusted score ≥ 0.8 (predicted_gain * confidence)
+    min_volume_1h: float = 15000        # Volume > 15k
+    min_holders: int = 100              # Holders > 100
+    min_liquidity: float = 15000        # Minimum liquidity
+    min_mc: float = 30000               # Minimum market cap
     
-    # Red flags - VERY STRICT thresholds for 80%+ win rate
-    max_bundled_pct: float = 15.0       # Avoid if bundled > 15% (was 60%)
-    max_sold_pct: float = 15.0          # Avoid if sold > 15% (was 60%)
-    max_snipers_pct: float = 25.0       # Avoid if snipers > 25% (was 50%)
+    # Red flags - Realistic thresholds
+    max_bundled_pct: float = 40.0       # Avoid if bundled > 40%
+    max_sold_pct: float = 40.0          # Avoid if sold > 40%
+    max_snipers_pct: float = 40.0       # Avoid if snipers > 40%
     
-    # Warning thresholds (reduce position size) - now stricter
-    warn_bundled_pct: float = 5.0       # Warning if bundled > 5% (was 15%)
-    warn_sold_pct: float = 8.0          # Warning if sold > 8% (was 25%)
-    warn_snipers_pct: float = 15.0      # Warning if snipers > 15% (was 35%)
+    # Warning thresholds (reduce position size)
+    warn_bundled_pct: float = 15.0      # Warning if bundled > 15%
+    warn_sold_pct: float = 15.0         # Warning if sold > 15%
+    warn_snipers_pct: float = 25.0      # Warning if snipers > 25%
     
     # Entry timing
     max_initial_pump_pct: float = 40.0  # Avoid if already pumped > 40% (was 50%)
@@ -81,13 +81,13 @@ class EntryConfig:
     # Liquidity ratio
     min_liq_to_mc_ratio: float = 0.20   # Minimum 20% liq/mc (was 15%)
     
-    # Security status filter - CRITICAL for 80%+ win rate
-    require_green_security: bool = True  # Only trade ✅ tokens
-    allowed_security_statuses: List[str] = field(default_factory=lambda: ["✅", "white_check_mark"])
+    # Security status filter
+    require_green_security: bool = False  # Allow ⚠️ warning tokens too
+    allowed_security_statuses: List[str] = field(default_factory=lambda: ["✅", "white_check_mark", "⚠️", "warning"])
     
     # Token age filter (in minutes)
-    min_token_age: int = 1              # At least 1 minute old
-    max_token_age: int = 60             # Not older than 60 minutes
+    min_token_age: int = 0              # Allow new tokens
+    max_token_age: int = 120            # Not older than 2 hours
     
     # First 20 holders concentration limit
     max_first_20_pct: float = 50.0      # Avoid if top 20 hold > 50%
@@ -105,7 +105,7 @@ class EntryConfig:
     })
     
     # Minimum source priority to trade
-    min_source_priority: int = 70       # Only primal, whale, solana_tracker
+    min_source_priority: int = 30       # Allow most sources
 
 
 @dataclass

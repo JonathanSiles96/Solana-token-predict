@@ -5,3 +5,6 @@ test_rmse,1.6790938567040699
 test_r2,-0.5778849743498966
 cv_r2_mean,-1.0437561414133334
 cv_r2_std,1.2705071735634639
+model_quality,unusable
+needs_retrain,true
+note,Model has negative R² - predictions are being clamped to realistic values
