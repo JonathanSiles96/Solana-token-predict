@@ -554,89 +554,44 @@ class TokenScorer:
         else:
             sl_level = default_sl
         
-        # === GO/SKIP DECISION - DATA-DRIVEN FOR 80%+ WIN RATE ===
-        # Based on analysis of 1575 signals with actual outcomes:
-        # - whale source: 100% win rate (182 samples)
-        # - tg_early_trending: 100% win rate (323 samples)
-        # - ✅ security: 93.7% win rate (190 samples)
-        # - Holders > 400: 87.3% win rate (275 samples)
-        # - Bundled<5% + Holders>300: 88.8% win rate (178 samples)
-        # - Volume>100K + Holders>200: 87.6% win rate (225 samples)
+        # === GO/SKIP DECISION - STRICT: ONLY 100% WIN RATE SOURCES ===
+        # Dec 14 analysis shows:
+        # - whale: 100% win rate (30/30)
+        # - tg_early_trending: 100% win rate (44/44)
+        # - primal: 64% win rate - LOSING MONEY!
+        # - solana_tracker: 64% win rate - LOSING MONEY!
+        #
+        # RULE: Only trade whale and tg_early_trending until we find 
+        # other patterns that ACTUALLY work in live trading
         
         go_decision = False
         decision_reason = ""
         win_tier = "none"
         
-        # === TIER 1: 100% WIN RATE SOURCES (AUTO-GO) ===
+        # === TIER 1: 100% WIN RATE SOURCES ONLY ===
         if source in ['whale', 'tg_early_trending']:
             go_decision = True
             win_tier = "TIER1"
-            decision_reason = f"🎯 TIER1: {source} source has 100% historical win rate"
+            decision_reason = f"🎯 TIER1: {source} = 100% win rate (VERIFIED)"
         
-        # === TIER 2: HIGH WIN RATE COMBOS (88-94%) ===
-        elif '✅' in security or 'white_check_mark' in security.lower():
-            # ✅ security: 93.7% win rate
-            go_decision = True
-            win_tier = "TIER2"
-            decision_reason = f"🎯 TIER2: ✅ security has 93.7% historical win rate"
+        # === ALL OTHER SOURCES: SKIP ===
+        # primal and solana_tracker have 64% win rate = LOSING MONEY
+        # Until we find reliable patterns, skip everything else
         
-        elif bundled_pct < 5 and holders > 300:
-            # Bundled<5% + Holders>300: 88.8% win rate
-            go_decision = True
-            win_tier = "TIER2"
-            decision_reason = f"🎯 TIER2: Bundled<5% + Holders>300 has 88.8% win rate"
-        
-        elif volume_1h > 100000 and holders > 200:
-            # Volume>100K + Holders>200: 87.6% win rate
-            go_decision = True
-            win_tier = "TIER2"
-            decision_reason = f"🎯 TIER2: Volume>100K + Holders>200 has 87.6% win rate"
-        
-        elif holders > 400:
-            # Holders > 400: 87.3% win rate
-            go_decision = True
-            win_tier = "TIER2"
-            decision_reason = f"🎯 TIER2: Holders>400 has 87.3% historical win rate"
-        
-        # === TIER 3: GOOD WIN RATE (80-87%) ===
-        elif '🚨' in security and holders > 200:
-            # 🚨 security: 86.5% win rate (surprisingly good!)
-            go_decision = True
-            win_tier = "TIER3"
-            decision_reason = f"🎯 TIER3: 🚨 security + holders>200 (~85% win rate)"
-        
-        elif bundled_pct < 10 and snipers_pct < 20 and holders > 200:
-            # Combo filter: ~84% win rate
-            go_decision = True
-            win_tier = "TIER3"
-            decision_reason = f"🎯 TIER3: Bundled<10% + Snipers<20% + Holders>200 (~84% win rate)"
-        
-        elif holders > 300 and volume_1h > 50000:
-            # Good holder + volume combo
-            go_decision = True
-            win_tier = "TIER3"
-            decision_reason = f"🎯 TIER3: Holders>300 + Volume>50K (~83% win rate)"
-        
-        # === TIER 4: BASELINE (78%) - More selective ===
-        elif holders > 200 and liquidity > 20000 and bundled_pct < 20:
-            go_decision = True
-            win_tier = "TIER4"
-            decision_reason = f"✅ TIER4: Baseline filters passed (~78% win rate)"
-        
-        # === SKIP CONDITIONS ===
-        else:
-            # Check why we're skipping
-            if holders < 100:
-                decision_reason = f"❌ Too few holders: {holders} < 100"
-            elif liquidity < 15000:
-                decision_reason = f"❌ Low liquidity: ${liquidity:,.0f}"
-            elif 'danger' in security.lower():
-                decision_reason = f"❌ Danger security status (60% win rate)"
-            elif bundled_pct > 60:
-                decision_reason = f"❌ Very high bundled: {bundled_pct:.0f}%"
-            else:
-                decision_reason = f"❌ Does not match any high win-rate pattern"
+        elif source == 'primal':
             go_decision = False
+            win_tier = "none"
+            decision_reason = f"❌ SKIP: primal source has 64% win rate (LOSING)"
+        
+        elif source == 'solana_tracker':
+            go_decision = False
+            win_tier = "none"
+            decision_reason = f"❌ SKIP: solana_tracker has 64% win rate (LOSING)"
+        
+        else:
+            go_decision = False
+            win_tier = "none"
+            decision_reason = f"❌ SKIP: {source} source not verified profitable"
         
         # === TAKE PROFIT LEVELS - Based on win tier ===
         # Data shows avg max_return is 3.5x (250% gain)
