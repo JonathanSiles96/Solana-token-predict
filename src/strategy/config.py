@@ -54,14 +54,21 @@ class RiskManagementConfig:
 
 @dataclass
 class EntryConfig:
-    """Entry strategy rules - DATA-PROVEN for 80%+ win rate"""
+    """Entry strategy rules - CORRECTED Dec 16 based on max_return data"""
     
-    # Based on analysis of 1575 signals with outcomes:
-    # - whale source: 100% win rate (182 samples)
-    # - tg_early_trending: 100% win rate (323 samples)  
-    # - ✅ security: 93.7% win rate
-    # - Holders > 400: 87.3% win rate
-    # - Bundled<5% + Holders>300: 88.8% win rate
+    # CORRECTED Analysis of 1473 signals with max_return data:
+    # 
+    # Tokens that NEVER go positive (max_return < 1.0):
+    # - primal: 3.2% (BEST - 97% reach break-even)
+    # - solana_tracker: 2.3% (BEST - 98% reach break-even)
+    # - tg_early_trending: 38.9% (BAD!)
+    # - whale: 41.0% (BAD!)
+    #
+    # Tokens reaching 1.3x+ profit:
+    # - solana_tracker: 70.9%
+    # - primal: 69.5%
+    # - tg_early_trending: 61.1%
+    # - whale: 59.0%
     
     # Minimum thresholds - DATA DRIVEN
     min_confidence: float = 0.5         # Lower - let data filters do the work
@@ -102,16 +109,19 @@ class EntryConfig:
     max_first_20_pct: float = 50.0      # Avoid if top 20 hold > 50%
     
     # Signal source priority - DATA DRIVEN (based on actual win rates)
-    # whale: 100% win rate, tg_early_trending: 100% win rate
-    # primal: 67.6%, solana_tracker: 68.6%
+    # CORRECTED Dec 16: Based on tokens that NEVER go positive:
+    # primal: only 3.2% never profit, 69.5% hit 1.3x+ (BEST)
+    # solana_tracker: only 2.3% never profit, 70.9% hit 1.3x+ (BEST)
+    # whale: 41% never go positive! (RISKY)
+    # tg_early_trending: 39% never go positive! (RISKY)
     source_priority: Dict[str, int] = field(default_factory=lambda: {
-        "whale": 100,                   # 100% win rate!
-        "tg_early_trending": 100,       # 100% win rate!
-        "whale_trending": 95,
-        "early_trending": 90,
-        "primal": 70,                   # 67.6% win rate
-        "solana_tracker": 70,           # 68.6% win rate
-        "telegram_early": 50,
+        "primal": 100,                  # BEST - 97% reach break-even, 70% profit
+        "solana_tracker": 100,          # BEST - 98% reach break-even, 71% profit
+        "whale_trending": 60,           # Unclear data
+        "early_trending": 60,           # Unclear data
+        "whale": 50,                    # RISKY - 41% never go positive!
+        "tg_early_trending": 50,        # RISKY - 39% never go positive!
+        "telegram_early": 40,           # Unclear
         "unknown": 20
     })
     
