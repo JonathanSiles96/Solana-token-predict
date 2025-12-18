@@ -109,20 +109,20 @@ class EntryConfig:
     max_first_20_pct: float = 50.0      # Avoid if top 20 hold > 50%
     
     # Signal source priority - DATA DRIVEN (based on actual win rates)
-    # CORRECTED Dec 16: Based on tokens that NEVER go positive:
-    # primal: only 3.2% never profit, 69.5% hit 1.3x+ (BEST)
-    # solana_tracker: only 2.3% never profit, 70.9% hit 1.3x+ (BEST)
-    # whale: 41% never go positive! (RISKY)
-    # tg_early_trending: 39% never go positive! (RISKY)
+    # REAL TRADE DATA Dec 16 from 2025(7).csv:
+    # whale: 7.7% win rate (2/26) - TERRIBLE!
+    # primal: 0% win rate (0/5) - ALL LOSSES!
+    # tg_early_trending: 27.3% win rate (6/22) - Best but still bad
+    # solana_tracker: 40% win rate (2/5) - Promising but small sample
     source_priority: Dict[str, int] = field(default_factory=lambda: {
-        "primal": 100,                  # BEST - 97% reach break-even, 70% profit
-        "solana_tracker": 100,          # BEST - 98% reach break-even, 71% profit
-        "whale_trending": 60,           # Unclear data
-        "early_trending": 60,           # Unclear data
-        "whale": 50,                    # RISKY - 41% never go positive!
-        "tg_early_trending": 50,        # RISKY - 39% never go positive!
-        "telegram_early": 40,           # Unclear
-        "unknown": 20
+        "solana_tracker": 80,           # 40% win rate - best so far
+        "tg_early_trending": 60,        # 27% win rate - 6/10 winners from here
+        "whale_trending": 30,           # Unclear
+        "early_trending": 30,           # Unclear
+        "whale": 10,                    # 7.7% win rate - BLOCKED
+        "primal": 10,                   # 0% win rate - BLOCKED
+        "telegram_early": 20,           # Unclear
+        "unknown": 10
     })
     
     # Minimum source priority to trade

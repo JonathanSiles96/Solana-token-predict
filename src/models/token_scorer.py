@@ -554,37 +554,60 @@ class TokenScorer:
         else:
             sl_level = default_sl
         
-        # === GO/SKIP DECISION - FINAL CORRECTED VERSION ===
-        # VERIFIED Dec 16 analysis shows:
-        # 
-        # primal + solana_tracker: Only 3-4% never go positive, 70% hit 1.3x+
-        # whale + tg_early_trending: 35-41% never go positive! TOO RISKY!
+        # === GO/SKIP DECISION - BASED ON REAL TRADE DATA Dec 16 ===
+        # REAL trade results from 2025(7).csv:
+        # - whale: 7.7% win rate (2/26) - TERRIBLE!
+        # - tg_early_trending: 27.3% win rate (6/22) - Best of bad options
+        # - solana_tracker: 40% (2/5) - Small sample but profitable
+        # - primal: 0% (0/5) - All losses!
         #
-        # STRATEGY: Only trade primal and solana_tracker
+        # The ONLY profitable source is tg_early_trending (barely)
+        # Need to be VERY selective
         
         go_decision = False
         decision_reason = ""
         win_tier = "none"
         
-        # === TRADE: primal and solana_tracker ONLY ===
-        # These are the only reliable sources (97% reach break-even)
-        if source in ['primal', 'solana_tracker']:
-            # Basic quality filters (loose - these sources are reliable)
-            if holders >= 50 and volume_1h >= 5000:
+        # === BLOCK: whale - 7.7% win rate, losing money! ===
+        if source == 'whale':
+            go_decision = False
+            win_tier = "none"
+            decision_reason = f"❌ BLOCKED: whale = 7.7% win rate (REAL DATA)"
+        
+        # === BLOCK: primal - 0% win rate in real trades! ===
+        elif source == 'primal':
+            go_decision = False
+            win_tier = "none" 
+            decision_reason = f"❌ BLOCKED: primal = 0% win rate (REAL DATA)"
+        
+        # === CAUTIOUS: tg_early_trending - Best but still only 27% ===
+        # 6/10 winners came from this source
+        elif source == 'tg_early_trending':
+            # Only take VERY strong signals
+            if (volume_1h >= 30000 and 
+                holders >= 150 and 
+                bundled_pct <= 15 and
+                snipers_pct <= 25):
                 go_decision = True
                 win_tier = "TIER1"
-                decision_reason = f"✅ GO: {source} (97% break-even, 70% profit rate)"
+                decision_reason = f"✅ GO: {source} (27% WR, strict filters)"
             else:
                 go_decision = False
                 win_tier = "none"
-                decision_reason = f"⚠️ SKIP: {source} very low holders/volume"
+                decision_reason = f"⚠️ SKIP: {source} - weak signal (need strict filters)"
         
-        # === SKIP: whale and tg_early_trending - TOO RISKY ===
-        # Even with strict filters, 35% never go positive
-        elif source in ['whale', 'tg_early_trending']:
-            go_decision = False
-            win_tier = "none"
-            decision_reason = f"❌ SKIP: {source} - 40% never go positive (too risky)"
+        # === CAUTIOUS: solana_tracker - 40% but small sample ===
+        elif source == 'solana_tracker':
+            if (volume_1h >= 25000 and 
+                holders >= 100 and
+                bundled_pct <= 20):
+                go_decision = True
+                win_tier = "TIER2"
+                decision_reason = f"✅ GO: {source} (40% WR, monitoring)"
+            else:
+                go_decision = False
+                win_tier = "none"
+                decision_reason = f"⚠️ SKIP: {source} - weak signal"
         
         # === UNKNOWN SOURCES: SKIP ===
         else:
