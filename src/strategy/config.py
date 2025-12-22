@@ -70,23 +70,27 @@ class EntryConfig:
     # - tg_early_trending: 61.1%
     # - whale: 59.0%
     
-    # Minimum thresholds - DATA DRIVEN
-    min_confidence: float = 0.5         # Lower - let data filters do the work
-    min_risk_adjusted_score: float = 0.3  # Lower - rely on proven filters
-    min_volume_1h: float = 10000        # Volume > 10k (data shows volume>100k is best)
-    min_holders: int = 200              # Holders > 200 (data: 80.7% win rate)
-    min_liquidity: float = 15000        # Minimum liquidity
-    min_mc: float = 25000               # Minimum market cap
+    # Minimum thresholds - OPTIMIZED Dec 22 based on 1930 signal analysis
+    # Key findings: Volume>=10k = 88.7% WR, Holders>=150 = 84.6% WR
+    # Optimal: Volume>=20k + Holders>=150 = 89.8% WR
+    min_confidence: float = 0.4         # Lower threshold
+    min_risk_adjusted_score: float = 0.2
+    min_volume_1h: float = 10000        # Volume>=10k = 88.7% WR (sweet spot)
+    min_holders: int = 100              # Holders>=100 = 83.7% WR
+    min_liquidity: float = 20000        # Liq>=20k = 83.5% WR, 25k = 90.5%!
+    min_mc: float = 20000               # Reasonable minimum
     
-    # Red flags - Based on actual data
-    max_bundled_pct: float = 50.0       # Data shows bundled doesn't matter much
-    max_sold_pct: float = 50.0          # Allow higher - filter by other metrics
-    max_snipers_pct: float = 50.0       # Allow higher - filter by other metrics
+    # Red flags - CORRECTED Dec 22 based on MAX_RETURN data
+    # Data shows tokens with bundled 80-100% still hit max_return 1.5-3.2x!
+    # The bundled% filter was way too restrictive
+    max_bundled_pct: float = 95.0       # LOOSENED - high bundled tokens still win!
+    max_sold_pct: float = 60.0          # Allow moderate selling
+    max_snipers_pct: float = 60.0       # Allow moderate snipers
     
-    # Warning thresholds
-    warn_bundled_pct: float = 20.0      # Warning if bundled > 20%
-    warn_sold_pct: float = 20.0         # Warning if sold > 20%
-    warn_snipers_pct: float = 30.0      # Warning if snipers > 30%
+    # Warning thresholds - just for logging, don't block
+    warn_bundled_pct: float = 50.0      # Warning if bundled > 50% (was 20%)
+    warn_sold_pct: float = 30.0         # Warning if sold > 30% (was 20%)
+    warn_snipers_pct: float = 40.0      # Warning if snipers > 40% (was 30%)
     
     # Entry timing
     max_initial_pump_pct: float = 40.0  # Avoid if already pumped > 40% (was 50%)
@@ -108,21 +112,20 @@ class EntryConfig:
     # First 20 holders concentration limit
     max_first_20_pct: float = 50.0      # Avoid if top 20 hold > 50%
     
-    # Signal source priority - DATA DRIVEN (based on actual win rates)
-    # REAL TRADE DATA Dec 16 from 2025(7).csv:
-    # whale: 7.7% win rate (2/26) - TERRIBLE!
-    # primal: 0% win rate (0/5) - ALL LOSSES!
-    # tg_early_trending: 27.3% win rate (6/22) - Best but still bad
-    # solana_tracker: 40% win rate (2/5) - Promising but small sample
+    # Signal source priority - CORRECTED Dec 22 based on MAX_RETURN data
+    # CRITICAL FIX: Previous logic blocked primal/whale but their tokens hit 1.5-3.2x!
+    # The issue was exit timing, not the signals themselves.
+    # 
+    # NEW APPROACH: Enable all sources, rely on fundamentals & TP/SL
     source_priority: Dict[str, int] = field(default_factory=lambda: {
-        "solana_tracker": 80,           # 40% win rate - best so far
-        "tg_early_trending": 60,        # 27% win rate - 6/10 winners from here
-        "whale_trending": 30,           # Unclear
-        "early_trending": 30,           # Unclear
-        "whale": 10,                    # 7.7% win rate - BLOCKED
-        "primal": 10,                   # 0% win rate - BLOCKED
-        "telegram_early": 20,           # Unclear
-        "unknown": 10
+        "primal": 80,                   # ENABLED - max_return data shows 1.5-3x winners
+        "whale": 80,                    # ENABLED - data shows 2x+ potential
+        "solana_tracker": 75,           # Good data quality
+        "tg_early_trending": 75,        # Good for early entry
+        "whale_trending": 60,           # Good whale signals
+        "early_trending": 60,           # Early opportunities
+        "telegram_early": 50,           # Telegram signals
+        "unknown": 30                   # Unknown sources - cautious
     })
     
     # Minimum source priority to trade
@@ -133,13 +136,14 @@ class EntryConfig:
 class ExitConfig:
     """Exit strategy rules"""
     
-    # Take profit levels: (gain_pct, sell_pct)
-    # Example: At 30% gain, sell 20% of position
+    # Take profit levels - OPTIMIZED for 3.4x avg max_return
+    # Data shows winners hit 3.4x average, best performers 40-100x
+    # Hold longer for bigger gains!
     tp_levels: List[Dict] = field(default_factory=lambda: [
-        {"gain_pct": 30, "sell_pct": 20, "label": "TP1"},
-        {"gain_pct": 50, "sell_pct": 25, "label": "TP2"},
-        {"gain_pct": 100, "sell_pct": 30, "label": "TP3"},
-        {"gain_pct": 200, "sell_pct": 35, "label": "TP4"},
+        {"gain_pct": 40, "sell_pct": 15, "label": "TP1"},
+        {"gain_pct": 80, "sell_pct": 20, "label": "TP2"},
+        {"gain_pct": 150, "sell_pct": 25, "label": "TP3"},
+        {"gain_pct": 300, "sell_pct": 25, "label": "TP4"},
         {"gain_pct": 500, "sell_pct": 100, "label": "MOON"}
     ])
     

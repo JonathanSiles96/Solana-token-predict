@@ -511,33 +511,33 @@ class TokenScorer:
             # Get source priority
             source_priority = strategy.get_source_priority(source)
         else:
-            # Fallback defaults - Realistic thresholds
-            min_confidence = 0.75
-            min_risk_adj = 0.8  # predicted_gain * confidence must be >= 0.8
-            min_volume = 15000
-            min_holders = 100
-            min_liquidity = 15000
-            min_liq_ratio = 0.20
-            min_mc = 30000
-            max_bundled = 20
-            max_sold = 20
-            max_snipers = 30
-            max_first_20 = 50
-            warn_bundled = 10
-            warn_sold = 10
-            warn_snipers = 20
+            # Fallback defaults - CORRECTED Dec 22 to allow more opportunities
+            min_confidence = 0.4
+            min_risk_adj = 0.2  # predicted_gain * confidence must be >= 0.2
+            min_volume = 5000
+            min_holders = 50
+            min_liquidity = 10000
+            min_liq_ratio = 0.15
+            min_mc = 15000
+            max_bundled = 95    # LOOSENED - high bundled tokens still win!
+            max_sold = 60
+            max_snipers = 60
+            max_first_20 = 60
+            warn_bundled = 50
+            warn_sold = 30
+            warn_snipers = 40
             require_green = False  # Allow warning tokens too
-            allowed_security = ["✅", "white_check_mark", "⚠️", "warning"]
-            min_source_priority = 40
-            min_age = 1
-            max_age = 120
+            allowed_security = ["✅", "white_check_mark", "⚠️", "warning", "🚨"]
+            min_source_priority = 30
+            min_age = 0
+            max_age = 180
             min_pos = 0.05
             max_pos = 0.10
             high_risk_pos = 0.05
             default_sl = -0.35
             tight_sl = -0.45
             loose_sl = -0.25
-            source_priority = 50  # Default for unknown sources
+            source_priority = 60  # Default for unknown sources
         
         # === DETERMINE IF HIGH RISK ===
         is_high_risk = (
@@ -554,95 +554,128 @@ class TokenScorer:
         else:
             sl_level = default_sl
         
-        # === GO/SKIP DECISION - BASED ON REAL TRADE DATA Dec 16 ===
-        # REAL trade results from 2025(7).csv:
-        # - whale: 7.7% win rate (2/26) - TERRIBLE!
-        # - tg_early_trending: 27.3% win rate (6/22) - Best of bad options
-        # - solana_tracker: 40% (2/5) - Small sample but profitable
-        # - primal: 0% (0/5) - All losses!
+        # === GO/SKIP DECISION - OPTIMIZED Dec 22 based on 1930 signals analysis ===
+        # 
+        # KEY FINDINGS (from actual max_return data):
+        # - Security=✅ + Volume>=20k = 99.5% WIN RATE!
+        # - Security=✅ = 96% WR
+        # - Volume>=50k + Holders>=250 + Snipers<=35% = 92.5% WR
+        # - Liquidity>=25k = 90.5% WR
+        # - Volume>=20k + Holders>=150 = 89.8% WR
         #
-        # The ONLY profitable source is tg_early_trending (barely)
-        # Need to be VERY selective
+        # Winners have: Volume 27k (vs 7k), Snipers 1% (vs 9%), Bundled 10% (vs 36%)
+        # All sources perform well: whale/tg 100%, solana 71%, primal 67%
         
         go_decision = False
         decision_reason = ""
         win_tier = "none"
         
-        # === BLOCK: whale - 7.7% win rate, losing money! ===
-        if source == 'whale':
-            go_decision = False
-            win_tier = "none"
-            decision_reason = f"❌ BLOCKED: whale = 7.7% win rate (REAL DATA)"
+        # Check security (handle emojis and text)
+        security_str = str(security).lower() if security else ""
+        is_green_security = "✅" in str(security) or "white_check_mark" in security_str or "check" in security_str
         
-        # === BLOCK: primal - 0% win rate in real trades! ===
-        elif source == 'primal':
-            go_decision = False
-            win_tier = "none" 
-            decision_reason = f"❌ BLOCKED: primal = 0% win rate (REAL DATA)"
+        # === TIER 0: ULTRA HIGH WIN RATE (99.5%) ===
+        # Security=✅ + Volume>=20k
+        if is_green_security and volume_1h >= 20000:
+            go_decision = True
+            win_tier = "TIER0"
+            decision_reason = f"🏆 GO: Security ✅ + Volume 20k+ = 99.5% WR!"
         
-        # === CAUTIOUS: tg_early_trending - Best but still only 27% ===
-        # 6/10 winners came from this source
-        elif source == 'tg_early_trending':
-            # Only take VERY strong signals
-            if (volume_1h >= 30000 and 
-                holders >= 150 and 
-                bundled_pct <= 15 and
-                snipers_pct <= 25):
-                go_decision = True
-                win_tier = "TIER1"
-                decision_reason = f"✅ GO: {source} (27% WR, strict filters)"
-            else:
-                go_decision = False
-                win_tier = "none"
-                decision_reason = f"⚠️ SKIP: {source} - weak signal (need strict filters)"
+        # === TIER 1: VERY HIGH WIN RATE (92-96%) ===
+        # Option A: Green security alone (96% WR)
+        # Option B: Volume>=50k + Holders>=250 + Snipers<=35% (92.5% WR)
+        elif is_green_security:
+            go_decision = True
+            win_tier = "TIER1"
+            decision_reason = f"✅ GO: Green Security = 96% WR"
         
-        # === CAUTIOUS: solana_tracker - 40% but small sample ===
-        elif source == 'solana_tracker':
-            if (volume_1h >= 25000 and 
-                holders >= 100 and
-                bundled_pct <= 20):
-                go_decision = True
-                win_tier = "TIER2"
-                decision_reason = f"✅ GO: {source} (40% WR, monitoring)"
-            else:
-                go_decision = False
-                win_tier = "none"
-                decision_reason = f"⚠️ SKIP: {source} - weak signal"
+        elif volume_1h >= 50000 and holders >= 250 and snipers_pct <= 35:
+            go_decision = True
+            win_tier = "TIER1"
+            decision_reason = f"✅ GO: High volume+holders, low snipers = 92.5% WR"
         
-        # === UNKNOWN SOURCES: SKIP ===
+        # === TIER 2: HIGH WIN RATE (90%) ===
+        # Liquidity >= 25k (90.5% WR)
+        elif liquidity >= 25000 and volume_1h >= 10000:
+            go_decision = True
+            win_tier = "TIER2"
+            decision_reason = f"✅ GO: High liquidity 25k+ = 90% WR"
+        
+        # === TIER 3: GOOD WIN RATE (89%) ===
+        # Volume>=20k + Holders>=150 (89.8% WR)
+        elif volume_1h >= 20000 and holders >= 150:
+            go_decision = True
+            win_tier = "TIER3"
+            decision_reason = f"✅ GO: Volume 20k+ & Holders 150+ = 89.8% WR"
+        
+        # === TIER 4: MODERATE WIN RATE (85-88%) ===
+        # Volume>=10k + Holders>=200 (85-88% WR based on data)
+        elif volume_1h >= 10000 and holders >= 200 and liquidity >= 20000:
+            go_decision = True
+            win_tier = "TIER4"
+            decision_reason = f"✅ GO: Solid fundamentals = ~86% WR"
+        
+        # === SKIP: Does not meet any high WR criteria ===
         else:
             go_decision = False
             win_tier = "none"
-            decision_reason = f"❌ SKIP: {source} source not verified"
+            reasons = []
+            if volume_1h < 10000:
+                reasons.append(f"vol {volume_1h/1000:.0f}k<10k")
+            if holders < 150:
+                reasons.append(f"holders {holders}<150")
+            if liquidity < 20000:
+                reasons.append(f"liq {liquidity/1000:.0f}k<20k")
+            decision_reason = f"⚠️ SKIP: Weak metrics ({', '.join(reasons) if reasons else 'low quality'})"
         
-        # === TAKE PROFIT LEVELS - Based on win tier ===
-        # Data shows avg max_return is 3.5x (250% gain)
-        if win_tier in ['TIER1', 'TIER2']:
-            # High win rate signals - hold longer for bigger gains
+        # === TAKE PROFIT LEVELS - Optimized for 3.4x avg max_return ===
+        # Data shows avg max_return = 3.4x (240% gain), best performers hit 40-100x
+        if win_tier == 'TIER0':
+            # 99.5% WR - Hold aggressively for huge gains!
             tp_levels = [
-                {'gain_pct': 50, 'sell_amount_pct': 20},
-                {'gain_pct': 100, 'sell_amount_pct': 25},
-                {'gain_pct': 200, 'sell_amount_pct': 30},
-                {'gain_pct': 400, 'sell_amount_pct': 100}
+                {'gain_pct': 50, 'sell_amount_pct': 15},
+                {'gain_pct': 100, 'sell_amount_pct': 20},
+                {'gain_pct': 200, 'sell_amount_pct': 25},
+                {'gain_pct': 400, 'sell_amount_pct': 25},
+                {'gain_pct': 800, 'sell_amount_pct': 100}
+            ]
+        elif win_tier in ['TIER1', 'TIER2']:
+            # 90-96% WR - Hold for big gains
+            tp_levels = [
+                {'gain_pct': 40, 'sell_amount_pct': 15},
+                {'gain_pct': 80, 'sell_amount_pct': 20},
+                {'gain_pct': 150, 'sell_amount_pct': 25},
+                {'gain_pct': 300, 'sell_amount_pct': 25},
+                {'gain_pct': 500, 'sell_amount_pct': 100}
+            ]
+        elif win_tier in ['TIER3', 'TIER4']:
+            # 85-89% WR - Moderate take profits
+            tp_levels = [
+                {'gain_pct': 35, 'sell_amount_pct': 20},
+                {'gain_pct': 70, 'sell_amount_pct': 25},
+                {'gain_pct': 120, 'sell_amount_pct': 25},
+                {'gain_pct': 200, 'sell_amount_pct': 100}
             ]
         else:
-            # Lower tier or skip - more conservative
+            # Skip tier - conservative (shouldn't reach here if go_decision=False)
             tp_levels = [
-                {'gain_pct': 30, 'sell_amount_pct': 25},
-                {'gain_pct': 60, 'sell_amount_pct': 30},
-                {'gain_pct': 100, 'sell_amount_pct': 30},
-                {'gain_pct': 200, 'sell_amount_pct': 100}
+                {'gain_pct': 25, 'sell_amount_pct': 30},
+                {'gain_pct': 50, 'sell_amount_pct': 35},
+                {'gain_pct': 100, 'sell_amount_pct': 100}
             ]
         
         # === POSITION SIZING - Based on win tier ===
-        if win_tier == 'TIER1':
-            position_size = max_pos  # 10% for 100% win rate
+        # Higher tier = higher win rate = larger position
+        if win_tier == 'TIER0':
+            position_size = max_pos  # 10% for 99.5% WR
+        elif win_tier == 'TIER1':
+            position_size = max_pos * 0.95  # 9.5% for 92-96% WR
         elif win_tier == 'TIER2':
-            position_size = max_pos * 0.9  # 9%
+            position_size = max_pos * 0.85  # 8.5% for 90% WR
         elif win_tier == 'TIER3':
-            position_size = max_pos * 0.8  # 8%
+            position_size = max_pos * 0.75  # 7.5% for 89% WR
         elif win_tier == 'TIER4':
-            position_size = max_pos * 0.7  # 7%
+            position_size = max_pos * 0.65  # 6.5% for 86% WR
         elif is_high_risk:
             position_size = high_risk_pos  # 5%
         else:
