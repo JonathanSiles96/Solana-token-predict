@@ -35,10 +35,13 @@ class RiskManagementConfig:
     max_position_pct: float = 0.10      # 10% maximum
     high_risk_position_pct: float = 0.05  # Reduce for risky trades
     
-    # Stop-loss levels
-    default_sl: float = -0.35           # -35% default
-    tight_sl: float = -0.45             # -45% for risky trades
-    loose_sl: float = -0.25             # -25% for low-risk trades
+    # Stop-loss levels - DATA-DRIVEN from loss analysis
+    # Only 1.7% of filtered trades end negative!
+    # Avg loss: -8.1%, 80th percentile: -10.2%, worst: -39%
+    # Per tier: TIER0=0%, TIER1=1.4%, TIER2=1.6%, TIER3=3.2%
+    default_sl: float = -0.30           # -30% default (data: covers 95% of recoveries)
+    tight_sl: float = -0.25             # -25% for lower tiers
+    loose_sl: float = -0.40             # -40% for TIER0/TIER1 (let them breathe)
     
     # Risk thresholds that trigger tighter SL
     high_risk_bundled_pct: float = 15.0
@@ -136,25 +139,38 @@ class EntryConfig:
 class ExitConfig:
     """Exit strategy rules"""
     
-    # Take profit levels - OPTIMIZED for 3.4x avg max_return
-    # Data shows winners hit 3.4x average, best performers 40-100x
-    # Hold longer for bigger gains!
+    # Take profit levels - DATA-DRIVEN from exit analysis
+    # Based on actual TP hit-rate analysis of 1212 filtered signals:
+    # - 95.5% hit +10%, 92.4% hit +20%, 89.4% hit +30%
+    # - 85.8% hit +50%, 58.8% hit +100%, 34.3% hit +200%
+    # - Avg max gain: +244% (TIER0), +233% (TIER1)
+    # Default levels (overridden per tier in token_scorer)
     tp_levels: List[Dict] = field(default_factory=lambda: [
-        {"gain_pct": 40, "sell_pct": 15, "label": "TP1"},
-        {"gain_pct": 80, "sell_pct": 20, "label": "TP2"},
-        {"gain_pct": 150, "sell_pct": 25, "label": "TP3"},
-        {"gain_pct": 300, "sell_pct": 25, "label": "TP4"},
-        {"gain_pct": 500, "sell_pct": 100, "label": "MOON"}
+        {"gain_pct": 25, "sell_pct": 20, "label": "TP1"},
+        {"gain_pct": 50, "sell_pct": 25, "label": "TP2"},
+        {"gain_pct": 100, "sell_pct": 30, "label": "TP3"},
+        {"gain_pct": 200, "sell_pct": 25, "label": "TP4"}
     ])
     
-    # Trailing stop activation
-    trailing_stop_activation_pct: float = 30.0  # Activate after 30% gain
-    trailing_stop_distance_pct: float = 15.0    # Trail 15% behind peak
+    # Trailing stop activation - DATA-DRIVEN
+    # Winners take median 32min to peak, losers dump in 15min
+    # After TP1: Move SL to protect profit
+    # After TP2: Activate trailing stop
+    trailing_stop_activation_pct: float = 50.0  # Activate after TP2 (~50% gain)
+    trailing_stop_distance_pct: float = 20.0    # Trail 20% behind peak (tight)
+    
+    # Post-TP1 SL rules (move to break-even + buffer)
+    post_tp1_sl_pct: float = -5.0   # After TP1, SL moves to -5% (protects most profit)
+    post_tp2_sl_pct: float = 10.0   # After TP2, SL moves to +10% (guaranteed profit)
     
     # Early exit triggers
     low_momentum_threshold: float = 0.1   # Exit if momentum drops below this
     whale_exit_snipers_pct: float = 40.0  # Exit if snipers spike
     whale_exit_sold_pct: float = 50.0     # Exit if sold spikes
+    
+    # Time-based rules (from analysis: losers dump in avg 15min)
+    stagnation_minutes: int = 30          # If no +15% in 30min, consider exit
+    max_hold_minutes: int = 360           # Max hold 6 hours (median peak at 32min)
 
 
 @dataclass

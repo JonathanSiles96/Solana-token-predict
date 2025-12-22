@@ -628,54 +628,90 @@ class TokenScorer:
                 reasons.append(f"liq {liquidity/1000:.0f}k<20k")
             decision_reason = f"⚠️ SKIP: Weak metrics ({', '.join(reasons) if reasons else 'low quality'})"
         
-        # === TAKE PROFIT LEVELS - Optimized for 3.4x avg max_return ===
-        # Data shows avg max_return = 3.4x (240% gain), best performers hit 40-100x
+        # === TAKE PROFIT LEVELS - DATA-DRIVEN from exit analysis ===
+        # Based on actual TP hit-rate analysis:
+        # TIER0: 99.5% hit +30%, 99% hit +50%, 64% hit +100%, 44% hit +200%
+        # TIER1: 90% hit +30%, 87% hit +50%, 63% hit +100%
+        # TIER2: 88% hit +30%, 85% hit +50%, 59% hit +100%
+        # TIER3: 82% hit +30%, 74% hit +50%, 49% hit +100%
+        # whale/tg_early: 100% hit +50%!
+        
         if win_tier == 'TIER0':
-            # 99.5% WR - Hold aggressively for huge gains!
+            # 99.5% hit +30%, 99% hit +50% - HOLD LONGER!
+            # Initial SL: -40% (wide - let it breathe)
             tp_levels = [
-                {'gain_pct': 50, 'sell_amount_pct': 15},
-                {'gain_pct': 100, 'sell_amount_pct': 20},
-                {'gain_pct': 200, 'sell_amount_pct': 25},
-                {'gain_pct': 400, 'sell_amount_pct': 25},
-                {'gain_pct': 800, 'sell_amount_pct': 100}
+                {'gain_pct': 30, 'sell_amount_pct': 15},   # 99.5% hit this
+                {'gain_pct': 75, 'sell_amount_pct': 20},   # ~70% hit this
+                {'gain_pct': 150, 'sell_amount_pct': 25},  # 44% hit this
+                {'gain_pct': 300, 'sell_amount_pct': 25},  # Runner mode
+                {'gain_pct': 500, 'sell_amount_pct': 100}  # Moon bag
             ]
-        elif win_tier in ['TIER1', 'TIER2']:
-            # 90-96% WR - Hold for big gains
+            sl_level = -0.40  # Wide SL for high quality
+            
+        elif win_tier == 'TIER1':
+            # 90% hit +30%, 87% hit +50%, 63% hit +100%
+            # Initial SL: -35%
             tp_levels = [
-                {'gain_pct': 40, 'sell_amount_pct': 15},
-                {'gain_pct': 80, 'sell_amount_pct': 20},
-                {'gain_pct': 150, 'sell_amount_pct': 25},
-                {'gain_pct': 300, 'sell_amount_pct': 25},
-                {'gain_pct': 500, 'sell_amount_pct': 100}
+                {'gain_pct': 25, 'sell_amount_pct': 20},   # 90% hit this
+                {'gain_pct': 50, 'sell_amount_pct': 25},   # 87% hit this
+                {'gain_pct': 100, 'sell_amount_pct': 30},  # 63% hit this
+                {'gain_pct': 200, 'sell_amount_pct': 25}   # 34% hit this
             ]
-        elif win_tier in ['TIER3', 'TIER4']:
-            # 85-89% WR - Moderate take profits
+            sl_level = -0.35
+            
+        elif win_tier == 'TIER2':
+            # 88% hit +30%, 85% hit +50%, 59% hit +100%
+            # Initial SL: -30%
             tp_levels = [
-                {'gain_pct': 35, 'sell_amount_pct': 20},
-                {'gain_pct': 70, 'sell_amount_pct': 25},
-                {'gain_pct': 120, 'sell_amount_pct': 25},
-                {'gain_pct': 200, 'sell_amount_pct': 100}
+                {'gain_pct': 25, 'sell_amount_pct': 20},
+                {'gain_pct': 50, 'sell_amount_pct': 25},
+                {'gain_pct': 80, 'sell_amount_pct': 30},
+                {'gain_pct': 150, 'sell_amount_pct': 25}
             ]
+            sl_level = -0.30
+            
+        elif win_tier == 'TIER3':
+            # 82% hit +30%, 74% hit +50%, 49% hit +100%
+            # Initial SL: -28%
+            tp_levels = [
+                {'gain_pct': 20, 'sell_amount_pct': 25},
+                {'gain_pct': 40, 'sell_amount_pct': 30},
+                {'gain_pct': 70, 'sell_amount_pct': 30},
+                {'gain_pct': 120, 'sell_amount_pct': 100}
+            ]
+            sl_level = -0.28
+            
+        elif win_tier == 'TIER4':
+            # 98% hit +30%, 94% hit +50%
+            # Initial SL: -25%
+            tp_levels = [
+                {'gain_pct': 20, 'sell_amount_pct': 30},
+                {'gain_pct': 40, 'sell_amount_pct': 35},
+                {'gain_pct': 70, 'sell_amount_pct': 35}
+            ]
+            sl_level = -0.25
+            
         else:
             # Skip tier - conservative (shouldn't reach here if go_decision=False)
             tp_levels = [
-                {'gain_pct': 25, 'sell_amount_pct': 30},
-                {'gain_pct': 50, 'sell_amount_pct': 35},
-                {'gain_pct': 100, 'sell_amount_pct': 100}
+                {'gain_pct': 15, 'sell_amount_pct': 40},
+                {'gain_pct': 30, 'sell_amount_pct': 40},
+                {'gain_pct': 50, 'sell_amount_pct': 100}
             ]
+            sl_level = default_sl
         
         # === POSITION SIZING - Based on win tier ===
-        # Higher tier = higher win rate = larger position
+        # Data shows: TIER0 has 0% loss rate, TIER3 has 3.2%
         if win_tier == 'TIER0':
-            position_size = max_pos  # 10% for 99.5% WR
+            position_size = max_pos  # 10% - virtually no losses
         elif win_tier == 'TIER1':
-            position_size = max_pos * 0.95  # 9.5% for 92-96% WR
+            position_size = max_pos * 0.95  # 9.5%
         elif win_tier == 'TIER2':
-            position_size = max_pos * 0.85  # 8.5% for 90% WR
+            position_size = max_pos * 0.85  # 8.5%
         elif win_tier == 'TIER3':
-            position_size = max_pos * 0.75  # 7.5% for 89% WR
+            position_size = max_pos * 0.70  # 7% - slightly higher loss rate
         elif win_tier == 'TIER4':
-            position_size = max_pos * 0.65  # 6.5% for 86% WR
+            position_size = max_pos * 0.65  # 6.5%
         elif is_high_risk:
             position_size = high_risk_pos  # 5%
         else:
