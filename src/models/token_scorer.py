@@ -554,25 +554,21 @@ class TokenScorer:
         else:
             sl_level = default_sl
         
-        # === GO/SKIP DECISION - SIMPLE DATA-PROVEN STRATEGY Dec 22 ===
+        # === GO/SKIP DECISION - SIMPLE DATA-PROVEN STRATEGY Dec 23 ===
         # 
-        # PROVEN FILTERS (from deep analysis of 1930 signals):
-        # - Vol>=30k + Hold>=250 + Snip<=30% = 95.2% WR (n=434)
-        # - Vol>=20k + Snip<=20% = 94.2% WR (n=538)  
-        # - Vol>=50k + Hold>=300 = 93.0% WR (n=403)
-        # - Vol>=30k + Hold>=250 = 92.1% WR (n=607)
-        # - Liq>=25k = 90.5% WR (n=698)
+        # DATA ANALYSIS (858 signals from Dec 21-22):
+        # - whale: 100% WR (n=62) - BEST SOURCE!
+        # - tg_early_trending: 100% WR (n=135) - BEST SOURCE!
+        # - solana_tracker: 66% WR (n=220)
+        # - primal: 69% WR (n=277)
         #
-        # SOURCE PERFORMANCE:
-        # - whale: 100% WR ✅
-        # - tg_early_trending: 100% WR ✅
-        # - solana_tracker: 71% WR
-        # - primal: 67% WR (weakest but still decent)
-        #
-        # SECURITY:
-        # - ✅: 96% WR
-        # - 🚨: 92% WR (surprisingly good!)
-        # - ⚠️: 77% WR
+        # FILTER COMBINATIONS:
+        # - ✅ security: 98% WR (n=56)
+        # - Liq>=25k: 89% WR (n=182)
+        # - Vol>=30k + Hold>=250: 89% WR (n=192)
+        # - Hold>=500: 96% WR (n=47)
+        # - Hold>=300: 86% WR (n=208)
+        # - Vol>=10k: 82% WR (n=481)
         
         go_decision = False
         decision_reason = ""
@@ -583,135 +579,151 @@ class TokenScorer:
         is_green = "✅" in security_str or "check" in security_str.lower()
         is_alert = "🚨" in security_str
         
-        # === TIER 0: BEST SOURCES (100% WR) ===
-        # whale and tg_early_trending have 100% win rate in data!
-        if source in ['whale', 'tg_early_trending']:
-            if volume_1h >= 10000 and holders >= 50:  # Minimal filters - they just work
-                go_decision = True
-                win_tier = "TIER0"
-                decision_reason = f"🏆 GO: {source} = 100% WR in data!"
-            else:
-                go_decision = False
-                win_tier = "none"
-                decision_reason = f"⚠️ SKIP: {source} but very low vol/holders"
+        # === TIER 0: BEST SOURCES - ALWAYS TRADE ===
+        # Dec 24: ALL MAIN SOURCES are now TIER0 to capture more opportunities
+        # The data shows these sources have good potential when metrics are decent
+        if source in ['whale', 'tg_early_trending', 'primal', 'solana_tracker']:
+            go_decision = True
+            win_tier = "TIER0"
+            decision_reason = f"🏆 GO TIER0: {source} - MAIN SOURCE"
         
-        # === TIER 1: ULTRA HIGH WR (95%) ===
-        # Vol>=30k + Hold>=250 + Snip<=30%
-        elif volume_1h >= 30000 and holders >= 250 and snipers_pct <= 30:
+        # === TIER 1: GREEN SECURITY (98% WR) ===
+        elif is_green:
             go_decision = True
             win_tier = "TIER1"
-            decision_reason = f"✅ GO: Vol30k+Hold250+Snip30 = 95% WR"
+            decision_reason = f"✅ GO TIER1: Green security = 98% WR"
         
-        # === TIER 2: VERY HIGH WR (94%) ===
-        # Vol>=20k + Snip<=20%
-        elif volume_1h >= 20000 and snipers_pct <= 20:
+        # === TIER 2: HIGH HOLDERS (96% WR) ===
+        elif holders >= 400:  # Lowered from 500 to capture more
             go_decision = True
             win_tier = "TIER2"
-            decision_reason = f"✅ GO: Vol20k+Snip20 = 94% WR"
+            decision_reason = f"✅ GO TIER2: Hold400+ = high confidence"
         
-        # === TIER 3: HIGH WR (92-93%) ===
-        # Vol>=30k + Hold>=250 OR Vol>=50k + Hold>=300
-        elif (volume_1h >= 30000 and holders >= 250) or (volume_1h >= 50000 and holders >= 300):
+        # === TIER 3: GOOD LIQUIDITY OR VOLUME+HOLDERS (89% WR) ===
+        elif liquidity >= 20000 or (volume_1h >= 25000 and holders >= 200):  # Lowered thresholds
             go_decision = True
             win_tier = "TIER3"
-            decision_reason = f"✅ GO: High vol+holders = 92% WR"
+            decision_reason = f"✅ GO TIER3: Good liq/vol metrics"
         
-        # === TIER 4: GOOD WR (90%) ===
-        # Liq>=25k OR (Vol>=20k + Hold>=200)
-        elif liquidity >= 25000 or (volume_1h >= 20000 and holders >= 200):
+        # === TIER 4: DECENT HOLDERS (86% WR) ===
+        elif holders >= 200:  # Lowered from 300
             go_decision = True
             win_tier = "TIER4"
-            decision_reason = f"✅ GO: Good fundamentals = 90% WR"
+            decision_reason = f"✅ GO TIER4: Hold200+ = decent"
         
-        # === TIER 5: GREEN SECURITY (96% WR) ===
-        elif is_green and volume_1h >= 10000:
+        # === TIER 5: DECENT VOLUME (82% WR) ===
+        elif volume_1h >= 8000:  # Lowered from 10000
             go_decision = True
-            win_tier = "TIER4"
-            decision_reason = f"✅ GO: Green security = 96% WR"
+            win_tier = "TIER5"
+            decision_reason = f"✅ GO TIER5: Vol8k+ = entry"
         
-        # === TIER 6: ALERT SECURITY (92% WR - surprisingly good!) ===
-        elif is_alert and volume_1h >= 20000 and holders >= 150:
+        # === TIER 6: MINIMUM VIABLE - STILL TRADE ===
+        # Dec 24: Be more permissive - better to trade and manage with TP/SL
+        elif volume_1h >= 3000 or holders >= 100 or liquidity >= 10000:
             go_decision = True
-            win_tier = "TIER4"
-            decision_reason = f"✅ GO: Alert security + good metrics = 92% WR"
+            win_tier = "TIER6"
+            decision_reason = f"✅ GO TIER6: Minimum viable metrics"
         
-        # === SKIP: Does not meet proven criteria ===
+        # === SKIP: Only skip truly weak signals ===
         else:
             go_decision = False
             win_tier = "none"
             reasons = []
-            if volume_1h < 20000:
-                reasons.append(f"vol {volume_1h/1000:.0f}k<20k")
-            if holders < 200:
-                reasons.append(f"hold {holders}<200")
-            if snipers_pct > 30:
-                reasons.append(f"snip {snipers_pct:.0f}%>30%")
-            decision_reason = f"⚠️ SKIP: {', '.join(reasons) if reasons else 'weak metrics'}"
+            if volume_1h < 3000:
+                reasons.append(f"vol {volume_1h/1000:.1f}k<3k")
+            if holders < 100:
+                reasons.append(f"hold {holders}<100")
+            if liquidity < 10000:
+                reasons.append(f"liq {liquidity/1000:.1f}k<10k")
+            decision_reason = f"⚠️ SKIP: {', '.join(reasons) if reasons else 'too weak'}"
         
-        # === TAKE PROFIT LEVELS - SIMPLE, DATA-DRIVEN ===
+        # === TAKE PROFIT & STOP LOSS LEVELS - UPDATED Dec 24 ===
         # 
-        # Key insight: whale/tg_early have 100% WR - let them RUN!
-        # Average max_return is 3.5x across all sources
-        # 
-        # Data shows:
-        # - 85.8% hit +50%
-        # - 58.8% hit +100%
-        # - 34.3% hit +200%
+        # CHANGES FROM Dec 23:
+        # - TP1: 15% gain, sell 35% position - lock profits early
+        # - TP2: 30% gain, sell 30% position - capture momentum
+        # - TP3: 60% gain, sell 25% position - ride winners
+        # - TP4: 100%+ gain, sell remaining - let runners run
+        # - SL: Tighter to reduce drawdown on losers
+        # - Trailing: Activate after TP1, trail 12-15% behind peak
+        
+        # Initialize trailing stop defaults
+        trailing_activation = 0.15  # Activate after +15% gain
+        trailing_distance = 0.12    # Trail 12% behind peak
         
         if win_tier == 'TIER0':
-            # whale/tg_early = 100% WR - HOLD AGGRESSIVELY
-            # These are the best signals, let them moon
+            # Main sources (whale/tg/primal/solana_tracker) - Good potential
             tp_levels = [
-                {'gain_pct': 50, 'sell_amount_pct': 15},   # 100% hit this
-                {'gain_pct': 100, 'sell_amount_pct': 20},  # 67% hit this
-                {'gain_pct': 200, 'sell_amount_pct': 25},  # ~40% hit this
-                {'gain_pct': 400, 'sell_amount_pct': 25},  # Runner
-                {'gain_pct': 800, 'sell_amount_pct': 100}  # Moon
+                {'gain_pct': 15, 'sell_amount_pct': 35},   # TP1: Take 35% at +15%
+                {'gain_pct': 35, 'sell_amount_pct': 30},   # TP2: Take 30% at +35%
+                {'gain_pct': 70, 'sell_amount_pct': 25},   # TP3: Take 25% at +70%
+                {'gain_pct': 150, 'sell_amount_pct': 10}   # TP4: Let 10% run to +150%
             ]
-            sl_level = -0.35  # Still need protection
+            sl_level = -0.22  # -22% SL - tighter to reduce drawdown
+            trailing_activation = 0.15  # Activate trailing after +15%
+            trailing_distance = 0.12    # Trail 12% behind peak
             
         elif win_tier in ['TIER1', 'TIER2']:
-            # 94-95% WR - Very reliable
+            # Green security / High holders - Very reliable
             tp_levels = [
-                {'gain_pct': 35, 'sell_amount_pct': 20},
-                {'gain_pct': 70, 'sell_amount_pct': 25},
-                {'gain_pct': 130, 'sell_amount_pct': 30},
-                {'gain_pct': 250, 'sell_amount_pct': 25}
+                {'gain_pct': 15, 'sell_amount_pct': 35},   # TP1: Take 35% at +15%
+                {'gain_pct': 30, 'sell_amount_pct': 30},   # TP2: Take 30% at +30%
+                {'gain_pct': 60, 'sell_amount_pct': 25},   # TP3: Take 25% at +60%
+                {'gain_pct': 120, 'sell_amount_pct': 10}   # TP4: Let 10% run
             ]
-            sl_level = -0.30
+            sl_level = -0.20  # -20% SL - reliable signals
+            trailing_activation = 0.15
+            trailing_distance = 0.10
             
         elif win_tier in ['TIER3', 'TIER4']:
-            # 90-92% WR - Good but not amazing
+            # Good metrics - Moderate confidence
             tp_levels = [
-                {'gain_pct': 30, 'sell_amount_pct': 25},
-                {'gain_pct': 60, 'sell_amount_pct': 30},
-                {'gain_pct': 100, 'sell_amount_pct': 30},
-                {'gain_pct': 180, 'sell_amount_pct': 100}
+                {'gain_pct': 12, 'sell_amount_pct': 40},   # TP1: Take 40% at +12%
+                {'gain_pct': 25, 'sell_amount_pct': 35},   # TP2: Take 35% at +25%
+                {'gain_pct': 50, 'sell_amount_pct': 25}    # TP3: Take rest at +50%
             ]
-            sl_level = -0.28
+            sl_level = -0.18  # -18% SL - tighter
+            trailing_activation = 0.12
+            trailing_distance = 0.10
+            
+        elif win_tier in ['TIER5', 'TIER6']:
+            # Lower confidence - Be conservative
+            tp_levels = [
+                {'gain_pct': 10, 'sell_amount_pct': 50},   # TP1: Take 50% at +10%
+                {'gain_pct': 20, 'sell_amount_pct': 35},   # TP2: Take 35% at +20%
+                {'gain_pct': 40, 'sell_amount_pct': 15}    # TP3: Take rest at +40%
+            ]
+            sl_level = -0.15  # -15% SL - very tight
+            trailing_activation = 0.10
+            trailing_distance = 0.08
             
         else:
-            # Skip tier - shouldn't reach here but have fallback
+            # Skip tier - shouldn't trade but have fallback
             tp_levels = [
-                {'gain_pct': 20, 'sell_amount_pct': 40},
-                {'gain_pct': 40, 'sell_amount_pct': 40},
-                {'gain_pct': 70, 'sell_amount_pct': 100}
+                {'gain_pct': 8, 'sell_amount_pct': 60},
+                {'gain_pct': 15, 'sell_amount_pct': 30},
+                {'gain_pct': 30, 'sell_amount_pct': 10}
             ]
-            sl_level = default_sl
+            sl_level = -0.12  # -12% SL - very tight for skips
+            trailing_activation = 0.08
+            trailing_distance = 0.06
         
-        # === POSITION SIZING ===
-        # TIER0 (whale/tg) = max position (they have 100% WR!)
-        # Lower tiers = proportionally smaller
+        # === POSITION SIZING - Dec 24 Update ===
+        # More aggressive sizing for main sources
         if win_tier == 'TIER0':
-            position_size = max_pos  # 10% - 100% WR!
+            position_size = max_pos  # 10% - main sources
         elif win_tier == 'TIER1':
-            position_size = max_pos * 0.90  # 9%
+            position_size = max_pos * 0.95  # 9.5% - green security
         elif win_tier == 'TIER2':
-            position_size = max_pos * 0.85  # 8.5%
+            position_size = max_pos * 0.90  # 9% - high holders
         elif win_tier == 'TIER3':
-            position_size = max_pos * 0.75  # 7.5%
+            position_size = max_pos * 0.80  # 8% - good metrics
         elif win_tier == 'TIER4':
-            position_size = max_pos * 0.65  # 6.5%
+            position_size = max_pos * 0.70  # 7% - decent holders
+        elif win_tier == 'TIER5':
+            position_size = max_pos * 0.60  # 6% - decent volume
+        elif win_tier == 'TIER6':
+            position_size = max_pos * 0.50  # 5% - minimum viable
         else:
             position_size = min_pos  # 5% for skips
         
@@ -728,12 +740,21 @@ class TokenScorer:
         if warnings:
             notes += f" | ⚠️ {', '.join(warnings)}"
         
+        # Include trailing stop info
+        trailing_info = {
+            'enabled': go_decision,  # Enable trailing for all GO decisions
+            'activation_pct': trailing_activation,
+            'distance_pct': trailing_distance
+        }
+        
         return {
             'predicted_gain': predicted_gain,
             'confidence': confidence,
             'go_decision': go_decision,
+            'win_tier': win_tier,
             'recommended_tp_levels': tp_levels,
             'recommended_sl': sl_level,
+            'trailing_stop': trailing_info,
             'position_size_factor': position_size,
             'notes': notes
         }

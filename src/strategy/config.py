@@ -28,31 +28,30 @@ class SignalSource(Enum):
 
 @dataclass
 class RiskManagementConfig:
-    """Risk management rules"""
+    """Risk management rules - UPDATED Dec 24"""
     
     # Position sizing
     min_position_pct: float = 0.05      # 5% minimum
     max_position_pct: float = 0.10      # 10% maximum
     high_risk_position_pct: float = 0.05  # Reduce for risky trades
     
-    # Stop-loss levels - DATA-DRIVEN from loss analysis
-    # Only 1.7% of filtered trades end negative!
-    # Avg loss: -8.1%, 80th percentile: -10.2%, worst: -39%
-    # Per tier: TIER0=0%, TIER1=1.4%, TIER2=1.6%, TIER3=3.2%
-    default_sl: float = -0.30           # -30% default (data: covers 95% of recoveries)
-    tight_sl: float = -0.25             # -25% for lower tiers
-    loose_sl: float = -0.40             # -40% for TIER0/TIER1 (let them breathe)
+    # Stop-loss levels - UPDATED Dec 24
+    # CRITICAL: Tighter SLs to reduce drawdown on losers
+    # Data shows losers dump fast - cut losses early
+    default_sl: float = -0.20           # -20% default (was -28%)
+    tight_sl: float = -0.15             # -15% for lower tiers (was -22%)
+    loose_sl: float = -0.22             # -22% for TIER0/TIER1 (was -30%)
     
     # Risk thresholds that trigger tighter SL
-    high_risk_bundled_pct: float = 15.0
-    high_risk_snipers_pct: float = 35.0
-    high_risk_sold_pct: float = 20.0
+    high_risk_bundled_pct: float = 50.0  # Raised to allow more bundled
+    high_risk_snipers_pct: float = 50.0  # Raised from 35%
+    high_risk_sold_pct: float = 40.0     # Raised from 20%
     
     # Maximum concurrent positions
-    max_active_trades: int = 7
+    max_active_trades: int = 10          # Raised from 7 to capture more opps
     
     # Diversification: max % of capital in single source
-    max_per_source_pct: float = 0.40    # 40% max in one source
+    max_per_source_pct: float = 0.50    # 50% max in one source (was 40%)
 
 
 @dataclass
@@ -73,27 +72,27 @@ class EntryConfig:
     # - tg_early_trending: 61.1%
     # - whale: 59.0%
     
-    # Minimum thresholds - OPTIMIZED Dec 22 based on 1930 signal analysis
-    # Key findings: Volume>=10k = 88.7% WR, Holders>=150 = 84.6% WR
-    # Optimal: Volume>=20k + Holders>=150 = 89.8% WR
-    min_confidence: float = 0.4         # Lower threshold
-    min_risk_adjusted_score: float = 0.2
-    min_volume_1h: float = 10000        # Volume>=10k = 88.7% WR (sweet spot)
-    min_holders: int = 100              # Holders>=100 = 83.7% WR
-    min_liquidity: float = 20000        # Liq>=20k = 83.5% WR, 25k = 90.5%!
-    min_mc: float = 20000               # Reasonable minimum
+    # Minimum thresholds - UPDATED Dec 24
+    # CRITICAL: Let tier logic in token_scorer.py handle GO/SKIP
+    # These are just absolute minimums - very permissive
+    min_confidence: float = 0.0         # No min - let tier logic decide
+    min_risk_adjusted_score: float = 0.0  # Let tier logic decide
+    min_volume_1h: float = 0            # No min - tier logic handles this
+    min_holders: int = 0                # No min - tier logic handles this
+    min_liquidity: float = 0            # No min
+    min_mc: float = 0                   # No min
     
-    # Red flags - CORRECTED Dec 22 based on MAX_RETURN data
-    # Data shows tokens with bundled 80-100% still hit max_return 1.5-3.2x!
-    # The bundled% filter was way too restrictive
-    max_bundled_pct: float = 95.0       # LOOSENED - high bundled tokens still win!
-    max_sold_pct: float = 60.0          # Allow moderate selling
-    max_snipers_pct: float = 60.0       # Allow moderate snipers
+    # Red flags - VERY PERMISSIVE Dec 24
+    # Data shows high bundled/snipers tokens still hit 2-10x!
+    # Better to trade and manage with TP/SL than miss opportunities
+    max_bundled_pct: float = 100.0      # No block - just warn
+    max_sold_pct: float = 100.0         # No block - just warn
+    max_snipers_pct: float = 100.0      # No block - just warn
     
-    # Warning thresholds - just for logging, don't block
-    warn_bundled_pct: float = 50.0      # Warning if bundled > 50% (was 20%)
-    warn_sold_pct: float = 30.0         # Warning if sold > 30% (was 20%)
-    warn_snipers_pct: float = 40.0      # Warning if snipers > 40% (was 30%)
+    # Warning thresholds - just for logging, DON'T BLOCK
+    warn_bundled_pct: float = 70.0      # Warning if bundled > 70%
+    warn_sold_pct: float = 50.0         # Warning if sold > 50%
+    warn_snipers_pct: float = 60.0      # Warning if snipers > 60%
     
     # Entry timing
     max_initial_pump_pct: float = 40.0  # Avoid if already pumped > 40% (was 50%)
@@ -108,12 +107,12 @@ class EntryConfig:
     require_green_security: bool = False  # Don't require green - data shows 🚨 is good!
     allowed_security_statuses: List[str] = field(default_factory=lambda: ["✅", "white_check_mark", "⚠️", "warning", "🚨"])
     
-    # Token age filter (in minutes)
+    # Token age filter (in minutes) - PERMISSIVE
     min_token_age: int = 0              # Allow new tokens
-    max_token_age: int = 120            # Not older than 2 hours
+    max_token_age: int = 1440           # Allow up to 24 hours (was 2 hours)
     
-    # First 20 holders concentration limit
-    max_first_20_pct: float = 50.0      # Avoid if top 20 hold > 50%
+    # First 20 holders concentration - PERMISSIVE
+    max_first_20_pct: float = 90.0      # Allow up to 90% (was 50%)
     
     # Signal source priority - CORRECTED Dec 22 based on MAX_RETURN data
     # CRITICAL FIX: Previous logic blocked primal/whale but their tokens hit 1.5-3.2x!
@@ -137,40 +136,40 @@ class EntryConfig:
 
 @dataclass
 class ExitConfig:
-    """Exit strategy rules"""
+    """Exit strategy rules - UPDATED Dec 24"""
     
-    # Take profit levels - DATA-DRIVEN from exit analysis
-    # Based on actual TP hit-rate analysis of 1212 filtered signals:
-    # - 95.5% hit +10%, 92.4% hit +20%, 89.4% hit +30%
-    # - 85.8% hit +50%, 58.8% hit +100%, 34.3% hit +200%
-    # - Avg max gain: +244% (TIER0), +233% (TIER1)
-    # Default levels (overridden per tier in token_scorer)
+    # Take profit levels - UPDATED Dec 24
+    # CRITICAL FIXES:
+    # - TP1: Lower to 15% to actually capture profits (was 20%)
+    # - TP2: 35% (was 50%)
+    # - TP3: 70% (was 100%)
+    # - TP4: 150% for runners
+    # - Sell more at early TPs to lock in gains
     tp_levels: List[Dict] = field(default_factory=lambda: [
-        {"gain_pct": 25, "sell_pct": 20, "label": "TP1"},
-        {"gain_pct": 50, "sell_pct": 25, "label": "TP2"},
-        {"gain_pct": 100, "sell_pct": 30, "label": "TP3"},
-        {"gain_pct": 200, "sell_pct": 25, "label": "TP4"}
+        {"gain_pct": 15, "sell_pct": 35, "label": "TP1"},   # 35% at +15%
+        {"gain_pct": 35, "sell_pct": 30, "label": "TP2"},   # 30% at +35%
+        {"gain_pct": 70, "sell_pct": 25, "label": "TP3"},   # 25% at +70%
+        {"gain_pct": 150, "sell_pct": 10, "label": "TP4"}   # 10% runner at +150%
     ])
     
-    # Trailing stop activation - DATA-DRIVEN
-    # Winners take median 32min to peak, losers dump in 15min
-    # After TP1: Move SL to protect profit
-    # After TP2: Activate trailing stop
-    trailing_stop_activation_pct: float = 50.0  # Activate after TP2 (~50% gain)
-    trailing_stop_distance_pct: float = 20.0    # Trail 20% behind peak (tight)
+    # Trailing stop - UPDATED Dec 24
+    # Activate earlier, trail tighter to protect gains
+    trailing_stop_activation_pct: float = 15.0  # Activate after TP1 (+15% gain)
+    trailing_stop_distance_pct: float = 12.0    # Trail 12% behind peak (was 20%)
     
-    # Post-TP1 SL rules (move to break-even + buffer)
-    post_tp1_sl_pct: float = -5.0   # After TP1, SL moves to -5% (protects most profit)
-    post_tp2_sl_pct: float = 10.0   # After TP2, SL moves to +10% (guaranteed profit)
+    # Post-TP SL rules (move SL up after hitting TPs)
+    post_tp1_sl_pct: float = 0.0    # After TP1, SL moves to break-even
+    post_tp2_sl_pct: float = 15.0   # After TP2, SL moves to +15% (guaranteed profit)
+    post_tp3_sl_pct: float = 35.0   # After TP3, SL moves to +35%
     
     # Early exit triggers
     low_momentum_threshold: float = 0.1   # Exit if momentum drops below this
-    whale_exit_snipers_pct: float = 40.0  # Exit if snipers spike
-    whale_exit_sold_pct: float = 50.0     # Exit if sold spikes
+    whale_exit_snipers_pct: float = 50.0  # Exit if snipers spike above 50%
+    whale_exit_sold_pct: float = 60.0     # Exit if sold spikes above 60%
     
-    # Time-based rules (from analysis: losers dump in avg 15min)
-    stagnation_minutes: int = 30          # If no +15% in 30min, consider exit
-    max_hold_minutes: int = 360           # Max hold 6 hours (median peak at 32min)
+    # Time-based rules
+    stagnation_minutes: int = 20          # If no +10% in 20min, tighten SL
+    max_hold_minutes: int = 240           # Max hold 4 hours (was 6)
 
 
 @dataclass
