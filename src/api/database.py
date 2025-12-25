@@ -57,6 +57,9 @@ class SignalDatabase:
                 max_return REAL,
                 max_return_mc REAL,
                 max_return_timestamp TIMESTAMP,
+                min_return REAL,
+                min_return_mc REAL,
+                min_return_timestamp TIMESTAMP,
                 last_tracked_price REAL,
                 last_tracked_at TIMESTAMP,
                 tracking_status TEXT DEFAULT 'active',
@@ -758,14 +761,14 @@ class SignalDatabase:
     
     def update_price_tracking(self, mint_key: str, signal_at: datetime,
                             current_price: float, current_mc: float):
-        """Update current price tracking for a signal"""
+        """Update current price tracking for a signal - tracks BOTH max AND min return"""
         conn = self.get_connection()
         cursor = conn.cursor()
         
         try:
-            # Get current max_return for this signal
+            # Get current max/min return for this signal
             cursor.execute("""
-                SELECT signal_mc, max_return, max_return_mc 
+                SELECT signal_mc, max_return, max_return_mc, min_return, min_return_mc 
                 FROM token_signals 
                 WHERE mint_key = ? AND signal_at = ?
             """, (mint_key, signal_at))
@@ -776,29 +779,47 @@ class SignalDatabase:
             
             signal_mc = row['signal_mc']
             current_max_return = row['max_return']
-            current_max_return_mc = row['max_return_mc']
+            current_min_return = row['min_return']
             
             # Calculate return from signal MC
             if signal_mc and signal_mc > 0:
                 return_pct = ((current_mc - signal_mc) / signal_mc)
                 
-                # Update if this is a new high
-                if current_max_return is None or return_pct > current_max_return:
+                # Track new HIGH (max_return)
+                new_max = current_max_return is None or return_pct > current_max_return
+                # Track new LOW (min_return / max drawdown)
+                new_min = current_min_return is None or return_pct < current_min_return
+                
+                if new_max and new_min:
+                    # Both new high and low (first update)
                     cursor.execute("""
                         UPDATE token_signals 
-                        SET max_return = ?,
-                            max_return_mc = ?,
-                            max_return_timestamp = CURRENT_TIMESTAMP,
-                            last_tracked_price = ?,
-                            last_tracked_at = CURRENT_TIMESTAMP
+                        SET max_return = ?, max_return_mc = ?, max_return_timestamp = CURRENT_TIMESTAMP,
+                            min_return = ?, min_return_mc = ?, min_return_timestamp = CURRENT_TIMESTAMP,
+                            last_tracked_price = ?, last_tracked_at = CURRENT_TIMESTAMP
+                        WHERE mint_key = ? AND signal_at = ?
+                    """, (return_pct, current_mc, return_pct, current_mc, current_price, mint_key, signal_at))
+                elif new_max:
+                    # New high only
+                    cursor.execute("""
+                        UPDATE token_signals 
+                        SET max_return = ?, max_return_mc = ?, max_return_timestamp = CURRENT_TIMESTAMP,
+                            last_tracked_price = ?, last_tracked_at = CURRENT_TIMESTAMP
+                        WHERE mint_key = ? AND signal_at = ?
+                    """, (return_pct, current_mc, current_price, mint_key, signal_at))
+                elif new_min:
+                    # New low (deeper drawdown)
+                    cursor.execute("""
+                        UPDATE token_signals 
+                        SET min_return = ?, min_return_mc = ?, min_return_timestamp = CURRENT_TIMESTAMP,
+                            last_tracked_price = ?, last_tracked_at = CURRENT_TIMESTAMP
                         WHERE mint_key = ? AND signal_at = ?
                     """, (return_pct, current_mc, current_price, mint_key, signal_at))
                 else:
                     # Just update tracking info
                     cursor.execute("""
                         UPDATE token_signals 
-                        SET last_tracked_price = ?,
-                            last_tracked_at = CURRENT_TIMESTAMP
+                        SET last_tracked_price = ?, last_tracked_at = CURRENT_TIMESTAMP
                         WHERE mint_key = ? AND signal_at = ?
                     """, (current_price, mint_key, signal_at))
             

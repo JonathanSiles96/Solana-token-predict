@@ -1,13 +1,19 @@
 """
-Trading Strategy Configuration
+Trading Strategy Configuration - UPDATED Dec 25, 2025
+
+Based on analysis of 2025(12).csv (728 signals, 675 GO signals):
+- TP Hit Rates: +10%=72%, +25%=65%, +50%=57%, +100%=39%
+- primal: 82% hit +15%, 70% hit +30% (BEST SOURCE)
+- solana_tracker: 79% hit +15%, 68% hit +30%
+- whale: 58% hit +15%
+- tg_early_trending: 52% hit +15%
+- Winners: 62.5%, Losers: 37.5%
 
 This file defines the trading strategy rules based on:
 - Risk Management
 - Entry Strategy  
 - Exit Strategy
 - Portfolio Management
-
-All thresholds and rules are configurable here.
 """
 
 from dataclasses import dataclass, field
@@ -16,11 +22,11 @@ from enum import Enum
 
 
 class SignalSource(Enum):
-    """Signal sources with priority levels"""
-    PRIMAL = "primal"           # Highest priority (71% confidence)
-    WHALE = "whale"             # Good for liquidity insights
-    SOLANA_TRACKER = "solana_tracker"
-    TELEGRAM_EARLY = "telegram_early"  # Speculative, secondary
+    """Signal sources with priority levels - UPDATED Dec 25"""
+    PRIMAL = "primal"           # BEST: 82% hit +15%, 70% hit +30%
+    SOLANA_TRACKER = "solana_tracker"  # 79% hit +15%, 68% hit +30%
+    WHALE = "whale"             # 58% hit +15%
+    TELEGRAM_EARLY = "telegram_early"  # 52% hit +15%
     EARLY_TRENDING = "early_trending"
     WHALE_TRENDING = "whale_trending"
     UNKNOWN = "unknown"
@@ -114,17 +120,18 @@ class EntryConfig:
     # First 20 holders concentration - PERMISSIVE
     max_first_20_pct: float = 90.0      # Allow up to 90% (was 50%)
     
-    # Signal source priority - CORRECTED Dec 22 based on MAX_RETURN data
-    # CRITICAL FIX: Previous logic blocked primal/whale but their tokens hit 1.5-3.2x!
-    # The issue was exit timing, not the signals themselves.
-    # 
-    # NEW APPROACH: Enable all sources, rely on fundamentals & TP/SL
+    # Signal source priority - UPDATED Dec 25 based on 2025(12).csv analysis
+    # Dec 25 data (675 GO signals):
+    # - primal: 82% hit +15%, 70% hit +30% (BEST!)
+    # - solana_tracker: 79% hit +15%, 68% hit +30%
+    # - whale: 58% hit +15%
+    # - tg_early_trending: 52% hit +15%
     source_priority: Dict[str, int] = field(default_factory=lambda: {
-        "primal": 80,                   # ENABLED - max_return data shows 1.5-3x winners
-        "whale": 80,                    # ENABLED - data shows 2x+ potential
-        "solana_tracker": 75,           # Good data quality
-        "tg_early_trending": 75,        # Good for early entry
-        "whale_trending": 60,           # Good whale signals
+        "primal": 95,                   # BEST: 82% hit +15%, 70% hit +30%
+        "solana_tracker": 90,           # 79% hit +15%, 68% hit +30%
+        "whale": 70,                    # 58% hit +15%
+        "tg_early_trending": 65,        # 52% hit +15%
+        "whale_trending": 60,           # Similar to whale
         "early_trending": 60,           # Early opportunities
         "telegram_early": 50,           # Telegram signals
         "unknown": 30                   # Unknown sources - cautious
@@ -136,31 +143,27 @@ class EntryConfig:
 
 @dataclass
 class ExitConfig:
-    """Exit strategy rules - UPDATED Dec 24"""
+    """Exit strategy rules - UPDATED Dec 25 based on 2025(12).csv analysis"""
     
-    # Take profit levels - UPDATED Dec 24
-    # CRITICAL FIXES:
-    # - TP1: Lower to 15% to actually capture profits (was 20%)
-    # - TP2: 35% (was 50%)
-    # - TP3: 70% (was 100%)
-    # - TP4: 150% for runners
-    # - Sell more at early TPs to lock in gains
+    # Take profit levels - DATA DRIVEN Dec 25
+    # From 675 GO signals:
+    # +10%: 72% hit, +25%: 65% hit, +50%: 57% hit, +100%: 39% hit
     tp_levels: List[Dict] = field(default_factory=lambda: [
-        {"gain_pct": 15, "sell_pct": 35, "label": "TP1"},   # 35% at +15%
-        {"gain_pct": 35, "sell_pct": 30, "label": "TP2"},   # 30% at +35%
-        {"gain_pct": 70, "sell_pct": 25, "label": "TP3"},   # 25% at +70%
-        {"gain_pct": 150, "sell_pct": 10, "label": "TP4"}   # 10% runner at +150%
+        {"gain_pct": 10, "sell_pct": 35, "label": "TP1"},   # 35% at +10% (72% hit)
+        {"gain_pct": 25, "sell_pct": 30, "label": "TP2"},   # 30% at +25% (65% hit)
+        {"gain_pct": 50, "sell_pct": 25, "label": "TP3"},   # 25% at +50% (57% hit)
+        {"gain_pct": 100, "sell_pct": 10, "label": "TP4"}   # 10% runner at +100% (39% hit)
     ])
     
-    # Trailing stop - UPDATED Dec 24
-    # Activate earlier, trail tighter to protect gains
-    trailing_stop_activation_pct: float = 15.0  # Activate after TP1 (+15% gain)
-    trailing_stop_distance_pct: float = 12.0    # Trail 12% behind peak (was 20%)
+    # Trailing stop - UPDATED Dec 25
+    # Activate after TP1, trail to protect gains
+    trailing_stop_activation_pct: float = 12.0  # Activate after +12% (before TP1)
+    trailing_stop_distance_pct: float = 10.0    # Trail 10% behind peak
     
     # Post-TP SL rules (move SL up after hitting TPs)
-    post_tp1_sl_pct: float = 0.0    # After TP1, SL moves to break-even
-    post_tp2_sl_pct: float = 15.0   # After TP2, SL moves to +15% (guaranteed profit)
-    post_tp3_sl_pct: float = 35.0   # After TP3, SL moves to +35%
+    post_tp1_sl_pct: float = 0.0    # After TP1 (+10%), SL moves to break-even
+    post_tp2_sl_pct: float = 10.0   # After TP2 (+25%), SL moves to +10%
+    post_tp3_sl_pct: float = 25.0   # After TP3 (+50%), SL moves to +25%
     
     # Early exit triggers
     low_momentum_threshold: float = 0.1   # Exit if momentum drops below this
@@ -168,21 +171,46 @@ class ExitConfig:
     whale_exit_sold_pct: float = 60.0     # Exit if sold spikes above 60%
     
     # Time-based rules
-    stagnation_minutes: int = 20          # If no +10% in 20min, tighten SL
-    max_hold_minutes: int = 240           # Max hold 4 hours (was 6)
+    stagnation_minutes: int = 15          # If no +8% in 15min, tighten SL
+    max_hold_minutes: int = 180           # Max hold 3 hours
+
+
+@dataclass
+class TopUpConfig:
+    """Top-up (adding to winning positions) configuration - NEW Dec 24"""
+    
+    # When to top up
+    enabled: bool = True
+    min_dip_pct: float = -5.0           # Top up if price dips 5% from entry
+    max_dip_pct: float = -12.0          # Don't top up if dipped more than 12%
+    
+    # How much to add
+    topup_size_pct: float = 0.50        # Add 50% of original position size
+    max_topups: int = 1                 # Maximum 1 top-up per position
+    
+    # Conditions for top-up (fundamentals must still be good)
+    require_volume_increase: bool = False  # Volume should not have dried up
+    min_volume_ratio: float = 0.5       # Current vol >= 50% of entry vol
+    
+    # New SL for topped-up position
+    topup_sl_pct: float = -0.10         # Tight -10% SL on the top-up portion
+    
+    # Time window for top-up
+    min_time_after_entry_minutes: int = 5   # Wait at least 5 min
+    max_time_after_entry_minutes: int = 30  # Top up within 30 min
 
 
 @dataclass
 class PortfolioConfig:
-    """Portfolio management rules"""
+    """Portfolio management rules - UPDATED Dec 24"""
     
-    max_active_positions: int = 7        # Max 5-7 coins per hour
-    rebalance_interval_minutes: int = 60  # Reassess every hour
-    min_trade_interval_seconds: int = 30  # Wait between trades
+    max_active_positions: int = 10       # Raised from 7 to capture more opps
+    rebalance_interval_minutes: int = 30  # Reassess every 30 min (was 60)
+    min_trade_interval_seconds: int = 15  # Faster entries (was 30)
     
     # Close underperformers
-    underperformer_threshold_pct: float = -15.0  # Close if down 15%
-    underperformer_time_minutes: int = 30        # After 30 minutes
+    underperformer_threshold_pct: float = -12.0  # Tighter: close if down 12% (was 15%)
+    underperformer_time_minutes: int = 20        # Faster: 20 min (was 30)
 
 
 @dataclass
@@ -212,15 +240,16 @@ class TrainingConfig:
 
 @dataclass
 class TradingStrategy:
-    """Complete trading strategy configuration"""
+    """Complete trading strategy configuration - UPDATED Dec 24"""
     
-    name: str = "Solana Token Strategy v1"
-    version: str = "1.0.0"
+    name: str = "Solana Token Strategy v2"
+    version: str = "2.0.0"
     
     risk: RiskManagementConfig = field(default_factory=RiskManagementConfig)
     entry: EntryConfig = field(default_factory=EntryConfig)
     exit: ExitConfig = field(default_factory=ExitConfig)
     portfolio: PortfolioConfig = field(default_factory=PortfolioConfig)
+    topup: TopUpConfig = field(default_factory=TopUpConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
     
     def get_source_priority(self, source: str) -> int:
