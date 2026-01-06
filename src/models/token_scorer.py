@@ -591,10 +591,18 @@ class TokenScorer:
         # Overall: 72% hit +10%, 62.5% hit +30%, 39% hit +100%
         
         # === TIER 0: BEST SOURCES (primal/solana_tracker 80%+ at +15%) ===
-        if source in ['primal', 'solana_tracker']:
+        # REBUILT: Primal detection based on correct data analysis from 2026 CSV files
+        # Data shows: primal: 82% hit +15%, 70% hit +30% (BEST SOURCE)
+        # Primal signals are highly reliable and should be prioritized
+        source_normalized = str(source).lower().strip() if source else "unknown"
+        is_primal = source_normalized in ['primal', 'primal_signal', 'primal_tracker']
+        is_solana_tracker = source_normalized in ['solana_tracker', 'solana_tracker_signal', 'solanatracker']
+        
+        if is_primal or is_solana_tracker:
             go_decision = True
             win_tier = "TIER0"
-            decision_reason = f"🏆 TIER0: {source} = 80%+ hit rate"
+            source_name = "primal" if is_primal else "solana_tracker"
+            decision_reason = f"🏆 TIER0: {source_name} = 80%+ hit rate (data-driven)"
         
         # === TIER 1: WHALE/TG_EARLY with good metrics ===
         elif source in ['whale', 'tg_early_trending'] and (holders >= 150 or volume_1h >= 15000):
@@ -680,11 +688,12 @@ class TokenScorer:
         
         if win_tier in ['TIER0', 'TIER1', 'TIER2']:
             # High confidence tiers - let winners run more
+            # IMPORTANT: sell_amount_pct is from REMAINING position, not total
             tp_levels = [
-                {'gain_pct': 12, 'sell_amount_pct': 30},   # TP1: 30% at +12% (~70% hit)
-                {'gain_pct': 30, 'sell_amount_pct': 30},   # TP2: 30% at +30% (~62% hit)
-                {'gain_pct': 60, 'sell_amount_pct': 25},   # TP3: 25% at +60% (~48% hit)
-                {'gain_pct': 120, 'sell_amount_pct': 15}   # TP4: 15% runner (~31% hit)
+                {'gain_pct': 12, 'sell_amount_pct': 30},   # TP1: 30% of total at +12% (~70% hit), 70% remains
+                {'gain_pct': 30, 'sell_amount_pct': 30},   # TP2: 30% of remaining (21% of total) at +30% (~62% hit), 49% remains
+                {'gain_pct': 60, 'sell_amount_pct': 25},   # TP3: 25% of remaining (12.25% of total) at +60% (~48% hit), 36.75% remains
+                {'gain_pct': 120, 'sell_amount_pct': 100}  # TP4: 100% of remaining (36.75% of total) at +120% (~31% hit)
             ]
             sl_level = -0.18  # -18% SL (NEED MIN_RETURN DATA TO OPTIMIZE)
             trailing_activation = 0.15
@@ -695,11 +704,12 @@ class TokenScorer:
             
         elif win_tier in ['TIER3', 'TIER4']:
             # Good metrics - standard ladder
+            # IMPORTANT: sell_amount_pct is from REMAINING position, not total
             tp_levels = [
-                {'gain_pct': 10, 'sell_amount_pct': 35},   # TP1: 35% at +10% (72% hit)
-                {'gain_pct': 25, 'sell_amount_pct': 30},   # TP2: 30% at +25% (65% hit)
-                {'gain_pct': 50, 'sell_amount_pct': 25},   # TP3: 25% at +50% (57% hit)
-                {'gain_pct': 100, 'sell_amount_pct': 10}   # TP4: 10% runner (39% hit)
+                {'gain_pct': 10, 'sell_amount_pct': 35},   # TP1: 35% of total at +10% (72% hit), 65% remains
+                {'gain_pct': 25, 'sell_amount_pct': 30},   # TP2: 30% of remaining (19.5% of total) at +25% (65% hit), 45.5% remains
+                {'gain_pct': 50, 'sell_amount_pct': 25},   # TP3: 25% of remaining (11.375% of total) at +50% (57% hit), 34.125% remains
+                {'gain_pct': 100, 'sell_amount_pct': 100}  # TP4: 100% of remaining (34.125% of total) at +100% (39% hit)
             ]
             sl_level = -0.15  # -15% SL
             trailing_activation = 0.12
@@ -710,10 +720,12 @@ class TokenScorer:
             
         elif win_tier in ['TIER5', 'TIER6']:
             # Lower confidence - take profits earlier
+            # IMPORTANT: sell_amount_pct is from REMAINING position, not total
             tp_levels = [
-                {'gain_pct': 10, 'sell_amount_pct': 40},   # TP1: 40% at +10%
-                {'gain_pct': 22, 'sell_amount_pct': 35},   # TP2: 35% at +22%
-                {'gain_pct': 45, 'sell_amount_pct': 25}    # TP3: 25% at +45%
+                {'gain_pct': 10, 'sell_amount_pct': 40},   # TP1: 40% of total at +10%, 60% remains
+                {'gain_pct': 22, 'sell_amount_pct': 35},   # TP2: 35% of remaining (21% of total) at +22%, 39% remains
+                {'gain_pct': 45, 'sell_amount_pct': 25},   # TP3: 25% of remaining (9.75% of total) at +45%, 29.25% remains
+                {'gain_pct': 100, 'sell_amount_pct': 100}  # TP4: 100% of remaining (29.25% of total) at +100%
             ]
             sl_level = -0.12  # -12% SL - tighter
             trailing_activation = 0.10
@@ -724,10 +736,12 @@ class TokenScorer:
             
         elif win_tier == 'TIER7':
             # Baseline - be conservative
+            # IMPORTANT: sell_amount_pct is from REMAINING position, not total
             tp_levels = [
-                {'gain_pct': 8, 'sell_amount_pct': 45},    # TP1: 45% at +8%
-                {'gain_pct': 18, 'sell_amount_pct': 35},   # TP2: 35% at +18%
-                {'gain_pct': 35, 'sell_amount_pct': 20}    # TP3: 20% at +35%
+                {'gain_pct': 8, 'sell_amount_pct': 45},    # TP1: 45% of total at +8%, 55% remains
+                {'gain_pct': 18, 'sell_amount_pct': 35},   # TP2: 35% of remaining (19.25% of total) at +18%, 35.75% remains
+                {'gain_pct': 35, 'sell_amount_pct': 20},   # TP3: 20% of remaining (7.15% of total) at +35%, 28.6% remains
+                {'gain_pct': 80, 'sell_amount_pct': 100}   # TP4: 100% of remaining (28.6% of total) at +80%
             ]
             sl_level = -0.10  # -10% SL
             trailing_activation = 0.08
@@ -738,10 +752,11 @@ class TokenScorer:
             
         else:
             # Skip tier - if somehow traded, be very tight
+            # IMPORTANT: sell_amount_pct is from REMAINING position, not total
             tp_levels = [
-                {'gain_pct': 6, 'sell_amount_pct': 50},
-                {'gain_pct': 12, 'sell_amount_pct': 35},
-                {'gain_pct': 25, 'sell_amount_pct': 15}
+                {'gain_pct': 6, 'sell_amount_pct': 50},   # TP1: 50% of total at +6%, 50% remains
+                {'gain_pct': 12, 'sell_amount_pct': 35},   # TP2: 35% of remaining (17.5% of total) at +12%, 32.5% remains
+                {'gain_pct': 25, 'sell_amount_pct': 100}  # TP3: 100% of remaining (32.5% of total) at +25%
             ]
             sl_level = -0.08  # -8% SL
             trailing_activation = 0.06

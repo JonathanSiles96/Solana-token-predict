@@ -420,6 +420,9 @@ class DynamicOrderManager:
         """
         Generate dynamic take-profit levels
         
+        IMPORTANT: Each TP sells a percentage of the REMAINING position size, not total.
+        This ensures proper position scaling as profits are taken.
+        
         Strategy:
         - TP1: Conservative (30-50% of predicted)
         - TP2: Target (70-90% of predicted)
@@ -427,27 +430,29 @@ class DynamicOrderManager:
         """
         tp_levels = []
         
-        # TP1: Early profit taking (25% of position)
+        # TP1: Early profit taking (30% of remaining position)
         tp1_gain = predicted_gain * 0.35
         tp1_price = entry_price * (1 + tp1_gain)
         tp_levels.append({
             'level': 1,
             'price': tp1_price,
             'gain_pct': tp1_gain,
-            'size_pct': 0.25  # Sell 25% of position
+            'size_pct': 0.30  # Sell 30% of remaining position (30% of total)
         })
         
-        # TP2: Main target (50% of remaining position = 37.5% total)
+        # TP2: Main target (30% of remaining position after TP1)
+        # After TP1: 70% remains, so TP2 sells 30% of that 70% = 21% of total
         tp2_gain = predicted_gain * 0.80
         tp2_price = entry_price * (1 + tp2_gain)
         tp_levels.append({
             'level': 2,
             'price': tp2_price,
             'gain_pct': tp2_gain,
-            'size_pct': 0.50  # Sell 50% of remaining (37.5% total)
+            'size_pct': 0.30  # Sell 30% of remaining position (21% of total)
         })
         
-        # TP3: Stretch goal (remaining 37.5%)
+        # TP3: Stretch goal (25% of remaining position after TP2)
+        # After TP2: 49% remains, so TP3 sells 25% of that 49% = 12.25% of total
         if confidence > 0.7:
             tp3_gain = predicted_gain * 1.30  # 130% of predicted
         else:
@@ -458,7 +463,17 @@ class DynamicOrderManager:
             'level': 3,
             'price': tp3_price,
             'gain_pct': tp3_gain,
-            'size_pct': 1.0  # Sell remaining
+            'size_pct': 0.25  # Sell 25% of remaining position
+        })
+        
+        # TP4: Runner (remaining position after TP3)
+        tp4_gain = predicted_gain * 1.50  # 150% of predicted
+        tp4_price = entry_price * (1 + tp4_gain)
+        tp_levels.append({
+            'level': 4,
+            'price': tp4_price,
+            'gain_pct': tp4_gain,
+            'size_pct': 1.0  # Sell 100% of remaining position (all remaining)
         })
         
         return tp_levels
