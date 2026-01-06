@@ -16,6 +16,7 @@ import sys
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from src.strategy.config import TradingStrategy, get_strategy
+from src.strategy.adaptive_filter import get_adaptive_filter, AdaptiveFilterStrength
 from src.models.token_scorer import TokenScorer
 from src.data_processing.data_loader import FeatureExtractor
 from src.api.database import SignalDatabase
@@ -48,6 +49,9 @@ class StrategyScorer:
         self.strategy = strategy or get_strategy()
         self.db = SignalDatabase(db_path)
         self.feature_extractor = FeatureExtractor()
+        
+        # Load adaptive filter strength model
+        self.adaptive_filter: AdaptiveFilterStrength = get_adaptive_filter()
         
         # Load model
         self.model: Optional[TokenScorer] = None
@@ -131,15 +135,49 @@ class StrategyScorer:
                 result['predicted_gain'] = 0.0
                 result['confidence'] = 0.0
         
-        # === STEP 2: Apply Strategy Filters ===
+        # === STEP 2: Apply Strategy Filters with Adaptive Filter Strength ===
         prediction = {
             'confidence': result['confidence'],
             'risk_adjusted_score': result['risk_adjusted_score']
         }
         
+        # Record signal for adaptive filter tracking
+        self.adaptive_filter.record_signal(signal_data, prediction, datetime.now())
+        
+        # Get adjusted thresholds from adaptive filter
+        base_thresholds = {
+            'min_confidence': self.strategy.entry.min_confidence,
+            'min_risk_score': self.strategy.entry.min_risk_adjusted_score,
+            'min_volume': self.strategy.entry.min_volume_1h,
+            'min_holders': self.strategy.entry.min_holders,
+            'min_source_priority': self.strategy.entry.min_source_priority
+        }
+        adjusted_thresholds = self.adaptive_filter.get_adjusted_thresholds(base_thresholds)
+        
+        # Temporarily update strategy thresholds for this signal
+        original_min_conf = self.strategy.entry.min_confidence
+        original_min_score = self.strategy.entry.min_risk_adjusted_score
+        original_min_priority = self.strategy.entry.min_source_priority
+        
+        self.strategy.entry.min_confidence = adjusted_thresholds.get('min_confidence', original_min_conf)
+        self.strategy.entry.min_risk_adjusted_score = adjusted_thresholds.get('min_risk_score', original_min_score)
+        self.strategy.entry.min_source_priority = adjusted_thresholds.get('min_source_priority', original_min_priority)
+        
         passed, filter_reasons, filter_score = self.strategy.passes_entry_filters(
             signal_data, prediction
         )
+        
+        # Restore original thresholds
+        self.strategy.entry.min_confidence = original_min_conf
+        self.strategy.entry.min_risk_adjusted_score = original_min_score
+        self.strategy.entry.min_source_priority = original_min_priority
+        
+        # Add adaptive filter info to reasons
+        if self.adaptive_filter.current_filter_strength != 0.5:
+            filter_reasons.append(
+                f"🔧 Adaptive filter strength: {self.adaptive_filter.current_filter_strength:.2f} "
+                f"({'stricter' if self.adaptive_filter.current_filter_strength > 0.5 else 'more permissive'})"
+            )
         
         result['passed_filters'] = passed
         result['filter_score'] = filter_score

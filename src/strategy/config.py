@@ -148,11 +148,12 @@ class ExitConfig:
     # Take profit levels - DATA DRIVEN Dec 25
     # From 675 GO signals:
     # +10%: 72% hit, +25%: 65% hit, +50%: 57% hit, +100%: 39% hit
+    # IMPORTANT: sell_pct is from REMAINING position size, not total position
     tp_levels: List[Dict] = field(default_factory=lambda: [
-        {"gain_pct": 10, "sell_pct": 35, "label": "TP1"},   # 35% at +10% (72% hit)
-        {"gain_pct": 25, "sell_pct": 30, "label": "TP2"},   # 30% at +25% (65% hit)
-        {"gain_pct": 50, "sell_pct": 25, "label": "TP3"},   # 25% at +50% (57% hit)
-        {"gain_pct": 100, "sell_pct": 10, "label": "TP4"}   # 10% runner at +100% (39% hit)
+        {"gain_pct": 10, "sell_pct": 35, "label": "TP1"},   # 35% of total at +10% (72% hit), 65% remains
+        {"gain_pct": 25, "sell_pct": 30, "label": "TP2"},   # 30% of remaining (19.5% of total) at +25% (65% hit), 45.5% remains
+        {"gain_pct": 50, "sell_pct": 25, "label": "TP3"},   # 25% of remaining (11.375% of total) at +50% (57% hit), 34.125% remains
+        {"gain_pct": 100, "sell_pct": 100, "label": "TP4"}  # 100% of remaining (34.125% of total) at +100% (39% hit)
     ])
     
     # Trailing stop - UPDATED Dec 25
@@ -253,12 +254,19 @@ class TradingStrategy:
     training: TrainingConfig = field(default_factory=TrainingConfig)
     
     def get_source_priority(self, source: str) -> int:
-        """Get priority for a signal source"""
-        source_lower = source.lower() if source else "unknown"
+        """
+        Get priority for a signal source
         
-        # Map common variations
+        REBUILT: Primal detection based on correct data analysis
+        Data shows primal is the best source (82% hit +15%, 70% hit +30%)
+        """
+        source_lower = source.lower().strip() if source else "unknown"
+        
+        # Map common variations - REBUILT with better primal detection
         source_map = {
             "primal": "primal",
+            "primal_signal": "primal",
+            "primal_tracker": "primal",
             "whale": "whale",
             "whale_trending": "whale_trending",
             "whaletrending": "whale_trending",
@@ -266,12 +274,20 @@ class TradingStrategy:
             "earlytrending": "early_trending",
             "solana_tracker": "solana_tracker",
             "solanatracker": "solana_tracker",
+            "solana_tracker_signal": "solana_tracker",
             "telegram": "telegram_early",
             "telegram_early": "telegram_early",
+            "tg_early_trending": "tg_early_trending",
         }
         
         normalized = source_map.get(source_lower, "unknown")
-        return self.entry.source_priority.get(normalized, 20)
+        priority = self.entry.source_priority.get(normalized, 20)
+        
+        # Additional validation: ensure primal gets highest priority
+        if normalized == "primal":
+            priority = max(priority, 95)  # Ensure at least 95
+        
+        return priority
     
     def is_high_risk(self, signal_data: dict) -> bool:
         """Check if signal is high risk"""
@@ -462,20 +478,21 @@ class TradingStrategy:
         """Get take profit levels adjusted for prediction"""
         
         # If predicted gain is very high, extend TP levels
+        # IMPORTANT: sell_pct is from REMAINING position size, not total
         if predicted_gain > 2.0:  # > 200% predicted
             return [
-                {"gain_pct": 50, "sell_pct": 15, "label": "TP1"},
-                {"gain_pct": 100, "sell_pct": 20, "label": "TP2"},
-                {"gain_pct": 200, "sell_pct": 25, "label": "TP3"},
-                {"gain_pct": 400, "sell_pct": 30, "label": "TP4"},
-                {"gain_pct": 800, "sell_pct": 100, "label": "MOON"}
+                {"gain_pct": 50, "sell_pct": 15, "label": "TP1"},   # 15% of total, 85% remains
+                {"gain_pct": 100, "sell_pct": 20, "label": "TP2"},  # 20% of remaining (17% of total), 68% remains
+                {"gain_pct": 200, "sell_pct": 25, "label": "TP3"},  # 25% of remaining (17% of total), 51% remains
+                {"gain_pct": 400, "sell_pct": 30, "label": "TP4"},  # 30% of remaining (15.3% of total), 35.7% remains
+                {"gain_pct": 800, "sell_pct": 100, "label": "MOON"} # 100% of remaining (35.7% of total)
             ]
         elif predicted_gain > 1.0:  # > 100% predicted
             return [
-                {"gain_pct": 30, "sell_pct": 20, "label": "TP1"},
-                {"gain_pct": 70, "sell_pct": 25, "label": "TP2"},
-                {"gain_pct": 150, "sell_pct": 30, "label": "TP3"},
-                {"gain_pct": 300, "sell_pct": 100, "label": "TP4"}
+                {"gain_pct": 30, "sell_pct": 20, "label": "TP1"},   # 20% of total, 80% remains
+                {"gain_pct": 70, "sell_pct": 25, "label": "TP2"},  # 25% of remaining (20% of total), 60% remains
+                {"gain_pct": 150, "sell_pct": 30, "label": "TP3"},  # 30% of remaining (18% of total), 42% remains
+                {"gain_pct": 300, "sell_pct": 100, "label": "TP4"}  # 100% of remaining (42% of total)
             ]
         else:
             return self.exit.tp_levels
